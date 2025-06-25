@@ -48,6 +48,8 @@ class SolarInsurancePricingApp:
             st.session_state.cvar_results = {}
             st.session_state.generation_type = 'Renewable Energy'
             st.session_state.generation_col = 'Generation (MWh)'
+            st.session_state.site_registry = None
+            st.session_state.facility_capacity = None
             
     def load_data_section(self):
         """Handle data loading section"""
@@ -109,6 +111,9 @@ class SolarInsurancePricingApp:
                 st.session_state.generation_type = generation_type
                 st.session_state.generation_col = generation_col
                 
+                # Try to load site registry and match capacity
+                self.load_site_capacity()
+                
                 st.success(f"✅ Successfully loaded {len(data)} months of {generation_type} data")
                 return True
                 
@@ -130,7 +135,10 @@ class SolarInsurancePricingApp:
             with col3:
                 st.metric(f"Avg Monthly {gen_type}", f"{data['Generation (MWh)'].mean():,.0f} MWh")
             with col4:
-                st.metric(f"Total {gen_type}", f"{data['Generation (MWh)'].sum():,.0f} MWh")
+                if st.session_state.facility_capacity:
+                    st.metric("AC Capacity", f"{st.session_state.facility_capacity:,.1f} MW")
+                else:
+                    st.metric(f"Total {gen_type}", f"{data['Generation (MWh)'].sum():,.0f} MWh")
                 
             # Show data preview
             with st.expander("📊 Data Preview"):
@@ -139,6 +147,45 @@ class SolarInsurancePricingApp:
                 st.dataframe(data[available_cols].head(10))
                 
         return st.session_state.data_loaded
+        
+    def load_site_capacity(self):
+        """Load site registry to get facility capacity"""
+        try:
+            # Try to load site registry from parent directory first
+            registry_paths = [
+                Path("site_registry.csv"),
+                Path("actual_generation/site_registry.csv"),
+                Path("../site_registry.csv")
+            ]
+            
+            site_registry = None
+            for path in registry_paths:
+                if path.exists():
+                    site_registry = pd.read_csv(path)
+                    break
+                    
+            if site_registry is not None:
+                st.session_state.site_registry = site_registry
+                
+                # Try to match facility name
+                if 'Plant Name' in st.session_state.data.columns:
+                    facility_name = st.session_state.data['Plant Name'].iloc[0]
+                    
+                    # Look for match in registry (assuming columns like 'Facility Name' and 'AC Capacity (MW)')
+                    for col in ['Facility Name', 'Plant Name', 'Name']:
+                        if col in site_registry.columns:
+                            match = site_registry[site_registry[col].str.contains(facility_name.split()[0], case=False, na=False)]
+                            if not match.empty:
+                                # Look for capacity column
+                                for cap_col in ['AC Capacity (MW)', 'Capacity (MW)', 'AC_Capacity_MW', 'Capacity']:
+                                    if cap_col in match.columns:
+                                        st.session_state.facility_capacity = match[cap_col].iloc[0]
+                                        st.info(f"✅ Found facility capacity: {st.session_state.facility_capacity:.1f} MW")
+                                        break
+                                break
+        except Exception as e:
+            # If registry not found or error, continue without it
+            pass
         
     def analysis_parameters_section(self):
         """Handle analysis parameters selection"""
@@ -235,6 +282,27 @@ class SolarInsurancePricingApp:
         """Handle insurance pricing parameters"""
         st.header("💰 Insurance Pricing Parameters")
         
+        # Add educational content about pricing
+        with st.expander("📚 How Insurance Pricing Works", expanded=False):
+            st.markdown("""
+            **Insurance Premium Components:**
+            
+            1. **Pure Premium** = Expected annual loss (probability × severity)
+            2. **Risk Load** = Multiplier for uncertainty (1.2x - 2.0x is industry standard)
+            3. **Expenses** = Operating costs (typically 15-25% for renewables)
+            4. **Profit Margin** = Target profit (usually 10-15%)
+            
+            **Coverage Limit Calculation:**
+            - Based on facility's annual revenue potential
+            - Annual Revenue = Capacity (MW) × Capacity Factor × 8760 hours × Energy Price
+            - Coverage typically 80-100% of annual revenue
+            
+            **Industry Standard Ranges:**
+            - **Conservative**: Risk load 1.8-2.0x, expenses 20-25%, profit 12-15%
+            - **Standard**: Risk load 1.5x, expenses 18-20%, profit 10-12%
+            - **Aggressive**: Risk load 1.2-1.3x, expenses 15-18%, profit 8-10%
+            """)
+        
         # Pricing scenario selection
         col1, col2 = st.columns([1, 2])
         
@@ -245,11 +313,11 @@ class SolarInsurancePricingApp:
                 help="Select a predefined pricing scenario or choose Custom to set your own parameters"
             )
         
-        # Define scenario presets
+        # Define more realistic scenario presets
         scenarios = {
-            "Conservative": {"risk_load": 2.5, "expense": 25, "profit": 20},
-            "Standard": {"risk_load": 2.0, "expense": 20, "profit": 15},
-            "Aggressive": {"risk_load": 1.5, "expense": 15, "profit": 10}
+            "Conservative": {"risk_load": 1.8, "expense": 22, "profit": 12},
+            "Standard": {"risk_load": 1.5, "expense": 20, "profit": 10},
+            "Aggressive": {"risk_load": 1.2, "expense": 17, "profit": 8}
         }
         
         # Parameter inputs
@@ -260,28 +328,28 @@ class SolarInsurancePricingApp:
                     risk_load = st.number_input(
                         "Risk Load Factor:",
                         min_value=1.0,
-                        max_value=5.0,
-                        value=2.0,
+                        max_value=2.5,  # Reduced from 5.0
+                        value=1.5,
                         step=0.1,
-                        help="Multiplier for uncertainty (1.0 = no load, 2.0 = 2x)"
+                        help="Industry standard: 1.2x - 2.0x"
                     )
                 with col_b:
                     expense_pct = st.number_input(
                         "Expense Ratio (%):",
-                        min_value=0,
-                        max_value=50,
+                        min_value=10,
+                        max_value=30,  # Reduced from 50
                         value=20,
                         step=1,
-                        help="Operating expenses as % of risk-loaded premium"
+                        help="Industry standard: 15-25%"
                     )
                 with col_c:
                     profit_pct = st.number_input(
                         "Profit Margin (%):",
-                        min_value=0,
-                        max_value=50,
-                        value=15,
+                        min_value=5,
+                        max_value=20,  # Reduced from 50
+                        value=10,
                         step=1,
-                        help="Target profit as % of total cost"
+                        help="Industry standard: 8-15%"
                     )
             else:
                 # Display preset values
@@ -293,43 +361,116 @@ class SolarInsurancePricingApp:
                 st.info(f"**{pricing_scenario} Pricing**: Risk Load: {risk_load}x | Expenses: {expense_pct}% | Profit: {profit_pct}%")
         
         # Additional parameters
-        st.subheader("Additional Parameters")
-        col3, col4, col5 = st.columns(3)
+        st.subheader("Coverage and Market Parameters")
         
-        with col3:
-            energy_price = st.number_input(
-                "Energy Price ($/MWh):",
-                min_value=10,
-                max_value=200,
-                value=50,
-                step=5,
-                help="Market price per MWh for calculating monetary losses"
-            )
-        
-        with col4:
-            coverage_limit = st.number_input(
-                "Coverage Limit ($M):",
-                min_value=1,
-                max_value=100,
-                value=10,
-                step=1,
-                help="Maximum annual payout limit in millions"
+        # Calculate suggested coverage limit based on capacity
+        if st.session_state.facility_capacity:
+            # Calculate potential annual revenue
+            st.info(f"🏭 Facility AC Capacity: {st.session_state.facility_capacity:.1f} MW")
+            
+            col3, col4 = st.columns(2)
+            
+            with col3:
+                energy_price = st.number_input(
+                    "Energy Price ($/MWh):",
+                    min_value=10,
+                    max_value=150,
+                    value=50,
+                    step=5,
+                    help="Market price per MWh"
+                )
+                
+                # Estimate capacity factor based on generation type
+                default_cf = 0.25 if st.session_state.generation_type == 'Solar' else 0.35
+                capacity_factor = st.slider(
+                    "Capacity Factor:",
+                    min_value=0.10,
+                    max_value=0.50,
+                    value=default_cf,
+                    step=0.01,
+                    help=f"Typical {st.session_state.generation_type}: {'20-30%' if st.session_state.generation_type == 'Solar' else '30-45%'}"
+                )
+            
+            with col4:
+                # Calculate annual revenue potential
+                annual_generation = st.session_state.facility_capacity * 8760 * capacity_factor
+                annual_revenue = annual_generation * energy_price
+                
+                st.metric("Annual Generation Potential", f"{annual_generation:,.0f} MWh")
+                st.metric("Annual Revenue Potential", f"${annual_revenue:,.0f}")
+                
+            # Coverage limit options
+            st.subheader("Coverage Limit")
+            
+            coverage_option = st.radio(
+                "Coverage basis:",
+                options=["% of Annual Revenue", "Custom Amount"],
+                horizontal=True
             )
             
-        with col5:
-            confidence_adjustment = st.checkbox(
-                "Auto-adjust for data confidence",
-                value=True,
-                help="Automatically increase risk load for months with limited historical data"
-            )
+            if coverage_option == "% of Annual Revenue":
+                coverage_pct = st.slider(
+                    "Coverage as % of annual revenue:",
+                    min_value=50,
+                    max_value=100,
+                    value=80,
+                    step=5,
+                    help="Typically 80-100% of annual revenue"
+                )
+                coverage_limit = annual_revenue * (coverage_pct / 100)
+                st.success(f"📊 Coverage Limit: ${coverage_limit:,.0f} ({coverage_pct}% of annual revenue)")
+            else:
+                coverage_limit = st.number_input(
+                    "Custom Coverage Limit ($):",
+                    min_value=100_000,
+                    max_value=int(annual_revenue * 2),
+                    value=int(annual_revenue * 0.8),
+                    step=100_000,
+                    help=f"Suggested range: ${annual_revenue*0.5:,.0f} - ${annual_revenue*1.2:,.0f}"
+                )
+        else:
+            # No capacity data - use traditional inputs
+            col3, col4, col5 = st.columns(3)
+            
+            with col3:
+                energy_price = st.number_input(
+                    "Energy Price ($/MWh):",
+                    min_value=10,
+                    max_value=150,
+                    value=50,
+                    step=5,
+                    help="Market price per MWh"
+                )
+            
+            with col4:
+                # If no capacity, estimate from historical generation
+                avg_monthly_gen = st.session_state.data['Generation (MWh)'].mean() if st.session_state.data_loaded else 2000
+                estimated_annual = avg_monthly_gen * 12
+                default_limit = estimated_annual * energy_price * 0.8
+                
+                coverage_limit = st.number_input(
+                    "Coverage Limit ($):",
+                    min_value=100_000,
+                    max_value=50_000_000,
+                    value=min(int(default_limit), 10_000_000),
+                    step=100_000,
+                    help=f"Based on avg generation: ${default_limit:,.0f} suggested"
+                )
+                
+            with col5:
+                confidence_adjustment = st.checkbox(
+                    "Auto-adjust for data confidence",
+                    value=True,
+                    help="Automatically increase risk load for months with limited historical data. Months with only 1 breach get higher risk loading due to uncertainty."
+                )
         
         # Store parameters
         st.session_state.risk_load_factor = risk_load
         st.session_state.expense_ratio = expense_pct / 100
         st.session_state.profit_margin = profit_pct / 100
         st.session_state.energy_price = energy_price
-        st.session_state.coverage_limit = coverage_limit * 1_000_000
-        st.session_state.confidence_adjustment = confidence_adjustment
+        st.session_state.coverage_limit = coverage_limit
+        st.session_state.confidence_adjustment = confidence_adjustment if 'confidence_adjustment' in locals() else True
         
     def run_analysis(self):
         """Run the complete analysis"""
@@ -543,6 +684,30 @@ class SolarInsurancePricingApp:
             
         st.header("📊 Analysis Results")
         
+        # Add quick glossary
+        with st.expander("📖 Quick Glossary", expanded=False):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("""
+                **Key Terms:**
+                - **VaR**: Value at Risk - the threshold that triggers payouts
+                - **CVaR**: Conditional VaR - average generation when below threshold
+                - **Breach**: When generation falls below the VaR threshold
+                - **Shortfall**: The difference between threshold and actual generation
+                - **Expected Loss**: Probability × Average Shortfall
+                """)
+                
+            with col2:
+                st.markdown("""
+                **Pricing Terms:**
+                - **Pure Premium**: Expected annual loss in dollars
+                - **Risk Load**: Safety margin for uncertainty
+                - **Rate on Line**: Premium as % of coverage limit
+                - **Loss Ratio**: Expected losses as % of premium
+                - **Confidence**: How reliable our estimates are
+                """)
+        
         # Create tabs for different views
         tab1, tab2, tab3, tab4 = st.tabs(["📈 Summary", "📊 Monthly Details", "🎯 Pricing", "📉 Visualizations"])
         
@@ -561,6 +726,40 @@ class SolarInsurancePricingApp:
     def display_summary(self):
         """Display summary statistics"""
         st.subheader("Executive Summary")
+        
+        # Add CVaR explanation
+        with st.expander("📚 Understanding CVaR (Conditional Value at Risk)", expanded=False):
+            st.markdown("""
+            **CVaR answers: "When things go bad, how bad do they get?"**
+            
+            While VaR tells us the threshold, CVaR tells us what happens below that threshold.
+            
+            **Example for December:**
+            - VaR (threshold): 2,850 MWh
+            - Historical breaches: 2,800 MWh and 2,700 MWh
+            - CVaR: (2,800 + 2,700) / 2 = 2,750 MWh
+            - Average shortfall: 2,850 - 2,750 = 100 MWh
+            
+            **Why it matters:**
+            - VaR tells us WHEN to pay (the trigger)
+            - CVaR tells us HOW MUCH to pay (average payout)
+            - Expected Loss = Breach Probability × Average Shortfall
+            """)
+            
+            # Visual representation
+            st.markdown("""
+            ```
+            Generation Distribution:
+                 |
+            3500 |    ████████
+            3000 |  ████████████
+            2500 |████████████████ ← CVaR (average of tail)
+            2000 |██████████████|← VaR (threshold)
+                 |______________|
+                       ↑
+                  Payouts occur here
+            ```
+            """)
         
         # Calculate overall statistics
         total_expected_loss = 0
@@ -584,7 +783,8 @@ class SolarInsurancePricingApp:
             st.metric(
                 "Expected Annual Loss",
                 f"{total_expected_loss * 12:,.0f} MWh",
-                f"${total_expected_loss * 12 * st.session_state.energy_price:,.0f}"
+                f"${total_expected_loss * 12 * st.session_state.energy_price:,.0f}",
+                help="Total expected shortfall across all months × 12. This is the average annual payout the insurer expects to make."
             )
             
         with col2:
@@ -592,26 +792,110 @@ class SolarInsurancePricingApp:
             st.metric(
                 "Avg Breach Probability",
                 f"{avg_breach_prob:.1f}%",
-                "Across all months"
+                "Across all months",
+                help="Average likelihood of generation falling below threshold. Higher % = more frequent payouts."
             )
             
         with col3:
             st.metric(
                 "High Confidence Months",
                 high_confidence_months,
-                "3+ historical breaches"
+                "3+ historical breaches",
+                help="Months with 3+ historical breaches have reliable CVaR estimates. More is better for pricing accuracy."
             )
             
         with col4:
             st.metric(
                 "Low Confidence Months",
                 low_confidence_months,
-                "Only 1 breach"
+                "Only 1 breach",
+                help="Months with only 1 breach have uncertain estimates. These require higher risk loads."
             )
+            
+        # Add capacity factor analysis if we have capacity data OR estimate it
+        st.markdown("---")
+        st.subheader("Facility Performance Analysis")
+        
+        if st.session_state.facility_capacity:
+            # Calculate actual capacity factor
+            total_generation = st.session_state.analysis_data['Generation (MWh)'].sum()
+            total_months = len(st.session_state.analysis_data)
+            total_hours = total_months * 730  # Average hours per month
+            
+            actual_capacity_factor = total_generation / (st.session_state.facility_capacity * total_hours)
+            
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.metric(
+                    "Facility Capacity",
+                    f"{st.session_state.facility_capacity:.1f} MW",
+                    "AC Nameplate"
+                )
+                
+            with col2:
+                st.metric(
+                    "Historical Capacity Factor",
+                    f"{actual_capacity_factor:.1%}",
+                    f"Over {total_months} months"
+                )
+                
+            with col3:
+                monthly_avg = total_generation / total_months
+                theoretical_monthly = st.session_state.facility_capacity * 730 * actual_capacity_factor
+                st.metric(
+                    "Avg Monthly Generation",
+                    f"{monthly_avg:,.0f} MWh",
+                    f"{(monthly_avg/theoretical_monthly - 1)*100:+.1f}% vs expected"
+                )
+        else:
+            # Estimate capacity from generation data
+            total_generation = st.session_state.analysis_data['Generation (MWh)'].sum()
+            total_months = len(st.session_state.analysis_data)
+            monthly_avg = total_generation / total_months
+            
+            # Estimate capacity assuming typical capacity factors
+            assumed_cf = 0.25 if st.session_state.generation_type == 'Solar' else 0.35
+            estimated_capacity = monthly_avg / (730 * assumed_cf)
+            
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.metric(
+                    "Estimated Capacity",
+                    f"~{estimated_capacity:.0f} MW",
+                    f"Assuming {assumed_cf:.0%} CF",
+                    help="Estimated from generation data"
+                )
+                
+            with col2:
+                st.metric(
+                    "Avg Monthly Generation",
+                    f"{monthly_avg:,.0f} MWh",
+                    f"Over {total_months} months"
+                )
+                
+            with col3:
+                annual_avg = monthly_avg * 12
+                st.metric(
+                    "Annual Generation",
+                    f"{annual_avg:,.0f} MWh/yr",
+                    f"${annual_avg * st.session_state.energy_price:,.0f}/yr"
+                )
             
     def display_monthly_details(self):
         """Display detailed monthly results"""
         st.subheader("Monthly VaR and CVaR Details")
+        
+        # Add explanation of the table
+        st.info("""
+        **How to read this table:**
+        - **VaR**: The threshold below which insurance pays out
+        - **Breaches**: How many times historically generation fell below VaR
+        - **Breach %**: Probability of needing to pay out
+        - **CVaR**: Average generation when below threshold
+        - **Avg Shortfall**: Average payout amount when triggered
+        """)
         
         # Create DataFrame for display
         results_data = []
@@ -651,12 +935,45 @@ class SolarInsurancePricingApp:
         """Display insurance pricing calculations"""
         st.subheader("💰 Insurance Pricing Calculation")
         
-        # Calculate total expected loss
+        # Add visual explanation of pricing flow
+        with st.expander("🎯 How We Calculate Your Premium", expanded=True):
+            st.markdown("""
+            ```
+            Expected Annual Loss (MWh) × Energy Price ($)
+                                ↓
+            Pure Premium (Expected Loss in $)
+                                ↓
+                        × Risk Load Factor
+                                ↓
+            Risk-Loaded Premium
+                                ↓
+                        + Expenses (%)
+                                ↓
+            Subtotal
+                                ↓
+                        + Profit Margin (%)
+                                ↓
+            Final Annual Premium 💰
+            ```
+            """)
+        
+        # Calculate total expected loss and confidence metrics
         total_expected_loss = 0
+        high_confidence_months = 0
+        low_confidence_months = 0
+        no_breach_months = 0
+        
         for month, result in st.session_state.cvar_results.items():
             if result['breach_count'] > 0:
                 expected_loss = (result['breach_probability'] / 100) * result['average_shortfall']
                 total_expected_loss += expected_loss
+                
+                if result['breach_count'] >= 3:
+                    high_confidence_months += 1
+                elif result['breach_count'] == 1:
+                    low_confidence_months += 1
+            else:
+                no_breach_months += 1
                 
         annual_expected_loss = total_expected_loss * 12
         energy_price = st.session_state.energy_price
@@ -664,11 +981,41 @@ class SolarInsurancePricingApp:
         # Determine risk load based on confidence
         if st.session_state.confidence_adjustment:
             low_confidence_months = sum(1 for r in st.session_state.cvar_results.values() if r['breach_count'] == 1)
-            if low_confidence_months > 6:
-                actual_risk_load = st.session_state.risk_load_factor * 1.25
-                st.warning(f"⚠️ Risk load increased to {actual_risk_load:.2f}x due to low data confidence")
+            no_breach_months = sum(1 for r in st.session_state.cvar_results.values() if r['breach_count'] == 0)
+            
+            # More nuanced risk adjustment
+            if no_breach_months >= 6:
+                actual_risk_load = st.session_state.risk_load_factor * 1.3
+                st.warning(f"""
+                ⚠️ **Risk load increased to {actual_risk_load:.2f}x due to limited data**
+                
+                {no_breach_months} months have NO historical breaches, making CVaR estimation impossible.
+                Consider using a lower threshold (P5 instead of P10) for better data coverage.
+                """)
+            elif low_confidence_months > 6:
+                actual_risk_load = st.session_state.risk_load_factor * 1.15
+                st.warning(f"""
+                ⚠️ **Risk load increased to {actual_risk_load:.2f}x due to low data confidence**
+                
+                {low_confidence_months} months have only 1 historical breach, making estimates uncertain. 
+                The additional risk load protects against underpricing due to limited data.
+                """)
+            elif low_confidence_months > 3:
+                actual_risk_load = st.session_state.risk_load_factor * 1.1
+                st.info(f"""
+                ℹ️ **Risk load adjusted to {actual_risk_load:.2f}x for moderate confidence**
+                
+                {low_confidence_months} months have limited breach data.
+                Small risk adjustment applied for prudent pricing.
+                """)
             else:
                 actual_risk_load = st.session_state.risk_load_factor
+                if high_confidence_months >= 9:
+                    st.success(f"""
+                    ✅ **High confidence pricing**: Risk load {actual_risk_load:.1f}x
+                    
+                    {high_confidence_months} months have 3+ breaches, providing reliable CVaR estimates.
+                    """)
         else:
             actual_risk_load = st.session_state.risk_load_factor
             
@@ -686,30 +1033,84 @@ class SolarInsurancePricingApp:
         with col1:
             st.markdown("### Pricing Components")
             
-            # Create pricing table
-            pricing_df = pd.DataFrame([
+            # Create pricing table with color coding
+            pricing_data = [
                 {"Component": "1. Pure Premium (Expected Loss)", "Calculation": f"{annual_expected_loss:,.0f} MWh × ${energy_price}", "Amount": f"${pure_premium:,.0f}"},
                 {"Component": f"2. Risk Load ({actual_risk_load:.1f}x)", "Calculation": f"${pure_premium:,.0f} × {actual_risk_load:.1f}", "Amount": f"${risk_loaded_premium:,.0f}"},
                 {"Component": f"3. Expenses ({st.session_state.expense_ratio*100:.0f}%)", "Calculation": f"${risk_loaded_premium:,.0f} × {st.session_state.expense_ratio:.0%}", "Amount": f"${expenses:,.0f}"},
-                {"Component": f"4. Profit Margin ({st.session_state.profit_margin*100:.0f}%)", "Calculation": f"${subtotal:,.0f} × {st.session_state.profit_margin:.0%}", "Amount": f"${profit:,.0f}"},
-                {"Component": "**TOTAL ANNUAL PREMIUM**", "Calculation": "", "Amount": f"**${total_premium:,.0f}**"}
-            ])
+                {"Component": f"4. Profit Margin ({st.session_state.profit_margin*100:.0f}%)", "Calculation": f"${subtotal:,.0f} × {st.session_state.profit_margin:.0%}", "Amount": f"${profit:,.0f}"}
+            ]
             
+            pricing_df = pd.DataFrame(pricing_data)
             st.dataframe(pricing_df, use_container_width=True, hide_index=True)
+            
+            # Highlight final premium
+            st.success(f"### 💰 TOTAL ANNUAL PREMIUM: ${total_premium:,.0f}")
+            
+            # Monthly breakdown
+            st.info(f"**Monthly Premium**: ${total_premium/12:,.0f} | **Daily Premium**: ${total_premium/365:,.0f}")
             
         with col2:
             st.markdown("### Key Metrics")
             
             # Rate on line
             rate_on_line = (total_premium / st.session_state.coverage_limit) * 100
-            st.metric("Rate on Line", f"{rate_on_line:.2f}%", f"${st.session_state.coverage_limit/1e6:.0f}M limit")
+            st.metric("Rate on Line", f"{rate_on_line:.2f}%", 
+                     help="Premium as % of limit. Industry standard: 2-10% for renewable energy")
             
             # Loss ratio
             expected_loss_ratio = (pure_premium / total_premium) * 100
-            st.metric("Expected Loss Ratio", f"{expected_loss_ratio:.1f}%")
+            st.metric("Expected Loss Ratio", f"{expected_loss_ratio:.1f}%",
+                     help="Expected payouts as % of premium. Target: 40-60%")
             
             # Monthly premium
             st.metric("Monthly Premium", f"${total_premium/12:,.0f}")
+            
+            # Add industry benchmark comparison
+            if rate_on_line < 2:
+                st.warning("⚠️ Rate on Line below 2% - may be underpriced")
+            elif rate_on_line > 10:
+                st.warning("⚠️ Rate on Line above 10% - may be uncompetitive")
+            else:
+                st.success("✅ Rate on Line within industry norms")
+                
+        # Additional pricing insights
+        st.markdown("---")
+        st.subheader("💡 Pricing Insights")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Show breakdown as percentages
+            st.markdown("**Cost Structure Breakdown:**")
+            breakdown_df = pd.DataFrame([
+                {"Component": "Expected Losses", "% of Premium": f"{(pure_premium/total_premium)*100:.1f}%"},
+                {"Component": "Risk Margin", "% of Premium": f"{((risk_loaded_premium-pure_premium)/total_premium)*100:.1f}%"},
+                {"Component": "Operating Expenses", "% of Premium": f"{(expenses/total_premium)*100:.1f}%"},
+                {"Component": "Profit Margin", "% of Premium": f"{(profit/total_premium)*100:.1f}%"}
+            ])
+            st.dataframe(breakdown_df, use_container_width=True, hide_index=True)
+            
+        with col2:
+            # Coverage adequacy check
+            st.markdown("**Coverage Adequacy Analysis:**")
+            
+            max_monthly_loss = max(r['average_shortfall'] for r in st.session_state.cvar_results.values() if r['breach_count'] > 0)
+            max_annual_exposure = max_monthly_loss * 12 * energy_price
+            coverage_adequacy = (st.session_state.coverage_limit / max_annual_exposure) * 100
+            
+            if coverage_adequacy < 100:
+                st.error(f"⚠️ Coverage may be insufficient: {coverage_adequacy:.0f}% of max exposure")
+            else:
+                st.success(f"✅ Coverage adequate: {coverage_adequacy:.0f}% of max exposure")
+                
+            st.info(f"""
+            **Coverage Analysis:**
+            - Max monthly shortfall: {max_monthly_loss:,.0f} MWh
+            - Max annual exposure: ${max_annual_exposure:,.0f}
+            - Current limit: ${st.session_state.coverage_limit:,.0f}
+            - Coverage ratio: {coverage_adequacy:.0f}%
+            """)
             
         # Download pricing report
         if st.button("📥 Download Pricing Report"):
@@ -855,6 +1256,40 @@ MONTHLY BREAKDOWN
             st.title(f"{icon} {gen_type} Generation Parametric Insurance Pricing Tool")
         else:
             st.title("⚡ Renewable Energy Parametric Insurance Pricing Tool")
+        
+        # Welcome message for first-time users
+        if not st.session_state.data_loaded:
+            st.markdown("""
+            ### Welcome! This tool helps you price parametric insurance for renewable energy facilities.
+            
+            **🎯 What is Parametric Insurance?**
+            
+            Unlike traditional insurance that requires damage assessment, parametric insurance pays automatically when 
+            generation falls below a pre-agreed threshold. Perfect for renewable energy because:
+            - ⚡ **Instant payouts** - No claims process needed
+            - 📊 **Objective triggers** - Based on actual generation data
+            - 💰 **Revenue protection** - Covers lost income from low generation
+            
+            **📈 How It Works:**
+            1. Set a generation threshold (e.g., 10th percentile of historical data)
+            2. If monthly generation < threshold → Automatic payout
+            3. Payout = (Threshold - Actual) × Energy Price
+            
+            **🏢 Perfect for:**
+            - **Project Developers**: Secure financing with revenue guarantees
+            - **Asset Owners**: Protect against weather-related generation losses  
+            - **Lenders**: Reduce project risk with coverage for debt service
+            - **Insurers**: Price products using advanced statistical methods
+            
+            **🚀 This Tool Provides:**
+            - Industry-standard VaR/CVaR analysis
+            - Automatic capacity-based coverage limits
+            - Confidence-adjusted risk pricing
+            - Professional reports for underwriting
+            
+            👉 **Get started by loading your generation data below!**
+            """)
+            
         st.markdown("---")
         
         # Sidebar for navigation
@@ -869,6 +1304,51 @@ MONTHLY BREAKDOWN
                     st.markdown(f"**{step}**" if st.session_state.data_loaded else f"⏳ {step}")
                 else:
                     st.markdown(f"**{step}**")
+            
+            # Add help section in sidebar
+            st.markdown("---")
+            st.header("❓ Need Help?")
+            
+            with st.expander("Quick Start Guide"):
+                st.markdown("""
+                1. **Load Data**: Select your CSV file with monthly generation data
+                2. **Set Parameters**: Choose VaR threshold and pricing scenario
+                3. **Run Analysis**: Click the button to calculate VaR and CVaR
+                4. **Review Results**: Check summary, details, and final pricing
+                
+                **Tips:**
+                - Lower percentiles (P1, P5) = more coverage but higher premiums
+                - Conservative pricing = safer but more expensive
+                - More historical data = better estimates
+                """)
+            
+            with st.expander("Understanding the Math"):
+                st.markdown("""
+                **VaR (Value at Risk)**
+                - P10 means 10% probability of falling below
+                - This becomes your insurance trigger
+                
+                **CVaR (Conditional VaR)**
+                - Average of all values below VaR
+                - Tells us the typical payout amount
+                
+                **Expected Loss**
+                - Breach Probability × Average Shortfall
+                - Forms the base of your premium
+                """)
+                
+            with st.expander("Industry Standards"):
+                st.markdown("""
+                **Typical Ranges:**
+                - Risk Load: 1.2x - 2.0x
+                - Expenses: 15% - 25%
+                - Profit: 8% - 15%
+                - Rate on Line: 2% - 10%
+                
+                **Capacity Factors:**
+                - Solar: 20% - 30%
+                - Wind: 30% - 45%
+                """)
                     
         # Main content
         if not st.session_state.data_loaded:
