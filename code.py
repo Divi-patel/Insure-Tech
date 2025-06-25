@@ -14,7 +14,7 @@ st.set_page_config(
     page_title="Renewable Energy Parametric Insurance Pricing Tool",
     page_icon="⚡",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
 # Custom CSS for better styling
@@ -33,11 +33,47 @@ st.markdown("""
         border-radius: 5px;
         margin: 5px 0;
     }
+    .asset-card {
+        background-color: #f8f9fa;
+        border: 1px solid #dee2e6;
+        border-radius: 10px;
+        padding: 20px;
+        margin: 10px 0;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        transition: transform 0.2s;
+    }
+    .asset-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+    }
+    .asset-title {
+        font-size: 1.25rem;
+        font-weight: 600;
+        color: #1f2937;
+        margin-bottom: 10px;
+    }
+    .asset-detail {
+        font-size: 0.9rem;
+        color: #4b5563;
+        margin: 5px 0;
+    }
+    .asset-metric {
+        font-size: 1.1rem;
+        font-weight: 500;
+        color: #2563eb;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 class SolarInsurancePricingApp:
     def __init__(self):
+        # Initialize session state
+        if 'page' not in st.session_state:
+            st.session_state.page = 'asset_selection'
+        
+        if 'selected_asset' not in st.session_state:
+            st.session_state.selected_asset = None
+            
         if 'data_loaded' not in st.session_state:
             st.session_state.data_loaded = False
             st.session_state.data = None
@@ -52,119 +88,8 @@ class SolarInsurancePricingApp:
             st.session_state.site_registry = None
             st.session_state.facility_capacity = None
             
-    def load_data_section(self):
-        """Handle data loading section"""
-        st.header("📂 Step 1: Select Your Data")
-        
-        # Get data directory
-        data_dir = Path("actual_generation")
-        
-        if not data_dir.exists():
-            st.error(f"Data directory not found at {data_dir}")
-            return False
-            
-        # List available files
-        csv_files = list(data_dir.glob("*.csv"))
-        if not csv_files:
-            st.error("No CSV files found in the actual_generation directory!")
-            return False
-            
-        # File selection with auto-load
-        file_names = [f.name for f in csv_files]
-        selected_file = st.selectbox(
-            "Select generation data file:",
-            options=file_names,
-            index=file_names.index("Blue_Wing_Solar_Energy_actual_generation.csv") if "Blue_Wing_Solar_Energy_actual_generation.csv" in file_names else 0,
-            help="Choose your facility's generation data file"
-        )
-        
-        # Auto-load when selection changes
-        if 'last_selected_file' not in st.session_state or st.session_state.last_selected_file != selected_file:
-            st.session_state.last_selected_file = selected_file
-            filepath = data_dir / selected_file
-            try:
-                data = pd.read_csv(filepath)
-                data['Date'] = pd.to_datetime(data['Date'])
-                
-                # Detect generation type
-                if 'Solar (MWh)' in data.columns:
-                    generation_col = 'Solar (MWh)'
-                    generation_type = 'Solar'
-                elif 'Wind (MWh)' in data.columns:
-                    generation_col = 'Wind (MWh)'
-                    generation_type = 'Wind'
-                else:
-                    st.error("No 'Solar (MWh)' or 'Wind (MWh)' column found in the data!")
-                    return False
-                
-                # Create standardized column
-                data['Generation (MWh)'] = data[generation_col]
-                
-                # Check for Month column
-                if 'Month' not in data.columns:
-                    data['Month'] = data['Date'].dt.month
-                
-                # Add Year column
-                data['Year'] = data['Date'].dt.year
-                
-                # Store in session state
-                st.session_state.data = data
-                st.session_state.data_loaded = True
-                st.session_state.selected_file = selected_file
-                st.session_state.generation_type = generation_type
-                st.session_state.generation_col = generation_col
-                
-                # Load site registry
-                self.load_site_capacity()
-                
-                st.success(f"✅ Loaded {len(data)} months of {generation_type} data from {selected_file}")
-                
-            except Exception as e:
-                st.error(f"Error loading data: {str(e)}")
-                return False
-        
-        # Display summary metrics if data loaded
-        if st.session_state.data_loaded:
-            data = st.session_state.data
-            gen_type = st.session_state.generation_type
-            
-            # Summary metrics in columns
-            col1, col2, col3, col4 = st.columns(4)
-            
-            with col1:
-                st.metric("Facility Type", gen_type)
-            with col2:
-                st.metric("Data Points", f"{len(data)} months")
-            with col3:
-                st.metric("Period", f"{data['Date'].min().strftime('%Y')} - {data['Date'].max().strftime('%Y')}")
-            with col4:
-                if st.session_state.facility_capacity:
-                    st.metric("AC Capacity", f"{st.session_state.facility_capacity:.1f} MW")
-                else:
-                    st.metric("AC Capacity", "Not Found")
-            
-            # Optional detailed view
-            with st.expander("📊 View Data Details"):
-                # Additional metrics
-                st.markdown("### Generation Statistics")
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric(f"Average Monthly", f"{data['Generation (MWh)'].mean():,.0f} MWh")
-                with col2:
-                    st.metric(f"Total Generation", f"{data['Generation (MWh)'].sum():,.0f} MWh")
-                with col3:
-                    st.metric("Date Range", f"{data['Date'].min().strftime('%Y-%m')} to {data['Date'].max().strftime('%Y-%m')}")
-                
-                # Data preview
-                st.markdown("### Data Preview")
-                display_cols = ['Date', 'Month-Year', st.session_state.generation_col]
-                available_cols = [col for col in display_cols if col in data.columns]
-                st.dataframe(data[available_cols].head(10))
-                
-        return st.session_state.data_loaded
-        
-    def load_site_capacity(self):
-        """Load site registry to get facility capacity"""
+    def load_site_registry(self):
+        """Load the site registry data"""
         try:
             # Try multiple locations
             registry_paths = [
@@ -173,53 +98,211 @@ class SolarInsurancePricingApp:
                 Path("../site_registry.csv")
             ]
             
-            site_registry = None
             for path in registry_paths:
                 if path.exists():
                     site_registry = pd.read_csv(path)
-                    st.info(f"Found site registry at: {path}")
-                    break
+                    return site_registry
                     
-            if site_registry is not None:
-                st.session_state.site_registry = site_registry
-                
-                # Try to match by plant code first
-                if 'Plant Code' in st.session_state.data.columns and 'plant_code' in site_registry.columns:
-                    plant_code = st.session_state.data['Plant Code'].iloc[0]
-                    match = site_registry[site_registry['plant_code'] == plant_code]
-                    
-                    if not match.empty:
-                        if 'ac_capacity_mw' in match.columns:
-                            st.session_state.facility_capacity = match['ac_capacity_mw'].iloc[0]
-                            site_name = match['site_name'].iloc[0] if 'site_name' in match.columns else "Unknown"
-                            st.success(f"✅ Matched by Plant Code {plant_code}: {site_name} - AC Capacity: {st.session_state.facility_capacity:.1f} MW")
-                            return
-                
-                # Try to match by facility name
-                if 'Plant Name' in st.session_state.data.columns and 'site_name' in site_registry.columns:
-                    facility_name = st.session_state.data['Plant Name'].iloc[0]
-                    
-                    # Try exact match
-                    match = site_registry[site_registry['site_name'].str.lower() == facility_name.lower()]
-                    
-                    # Try partial match
-                    if match.empty:
-                        clean_name = facility_name.replace("_actual_generation", "").replace(" LLC", "").replace(" Hybrid", "")
-                        first_part = clean_name.split()[0] if ' ' in clean_name else clean_name.split('_')[0]
-                        match = site_registry[site_registry['site_name'].str.contains(first_part, case=False, na=False)]
-                    
-                    if not match.empty:
-                        if 'ac_capacity_mw' in match.columns:
-                            st.session_state.facility_capacity = match['ac_capacity_mw'].iloc[0]
-                            st.success(f"✅ Matched facility: {match['site_name'].iloc[0]} - AC Capacity: {st.session_state.facility_capacity:.1f} MW")
-                        else:
-                            st.warning("AC capacity column not found in site registry")
-                    else:
-                        st.warning(f"Could not find '{facility_name}' in site registry")
-                        
+            st.error("Site registry not found!")
+            return None
+            
         except Exception as e:
             st.error(f"Error loading site registry: {str(e)}")
-            pass
+            return None
+            
+    def asset_selection_page(self):
+        """Display the asset selection page"""
+        st.title("⚡ Renewable Energy Parametric Insurance Analysis")
+        st.markdown("### Select a facility to analyze")
+        
+        # Load site registry
+        site_registry = self.load_site_registry()
+        if site_registry is None:
+            return
+            
+        # Get data directory
+        data_dir = Path("actual_generation")
+        if not data_dir.exists():
+            st.error(f"Data directory not found at {data_dir}")
+            return
+            
+        # List available files
+        csv_files = list(data_dir.glob("*.csv"))
+        csv_files = [f for f in csv_files if f.name != "site_registry.csv" and f.name != "README.md"]
+        
+        if not csv_files:
+            st.error("No generation data files found!")
+            return
+            
+        # Create a mapping of site names to files
+        file_mapping = {}
+        for file in csv_files:
+            # Extract site name from filename
+            site_name_from_file = file.stem.replace("_actual_generation", "")
+            file_mapping[site_name_from_file] = file
+            
+        # Display assets in a grid
+        cols_per_row = 3
+        assets = []
+        
+        for idx, row in site_registry.iterrows():
+            site_name = row['site_name']
+            
+            # Try to match with available data files
+            data_file = None
+            for file_site_name, file_path in file_mapping.items():
+                if site_name.lower() in file_site_name.lower() or file_site_name.lower() in site_name.lower():
+                    data_file = file_path
+                    break
+                    
+            if data_file:
+                assets.append({
+                    'site_data': row,
+                    'data_file': data_file
+                })
+                
+        # Display assets in grid layout
+        for i in range(0, len(assets), cols_per_row):
+            cols = st.columns(cols_per_row)
+            
+            for j in range(cols_per_row):
+                if i + j < len(assets):
+                    asset = assets[i + j]
+                    site_data = asset['site_data']
+                    
+                    with cols[j]:
+                        # Create asset card
+                        with st.container():
+                            # Card content using markdown for better styling
+                            icon = "☀️" if site_data['site_type'].lower() == 'solar' else "💨"
+                            
+                            st.markdown(f"""
+                            <div class="asset-card">
+                                <div class="asset-title">{icon} {site_data['site_name'].replace('_', ' ')}</div>
+                                <div class="asset-detail"><strong>Type:</strong> {site_data['site_type'].title()}</div>
+                                <div class="asset-detail"><strong>Location:</strong> {site_data['county']}, {site_data['state']}</div>
+                                <div class="asset-detail"><strong>Capacity:</strong> <span class="asset-metric">{site_data['ac_capacity_mw']:.1f} MW</span> AC</div>
+                                <div class="asset-detail"><strong>Online:</strong> {site_data['start_month']} {int(site_data['start_year'])}</div>
+                                <div class="asset-detail"><strong>Plant Code:</strong> {site_data['plant_code']}</div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            
+                            # Analysis button
+                            if st.button(f"📊 Analyze", key=f"analyze_{site_data['plant_code']}", use_container_width=True, type="primary"):
+                                st.session_state.selected_asset = {
+                                    'site_data': site_data.to_dict(),
+                                    'data_file': str(asset['data_file'])
+                                }
+                                st.session_state.page = 'analysis'
+                                st.rerun()
+                                
+        # Add information footer
+        st.markdown("---")
+        st.info("""
+        💡 **About Parametric Insurance:** Unlike traditional insurance, parametric insurance pays automatically when 
+        generation falls below a pre-agreed threshold. No claims process needed - just objective, data-driven coverage 
+        for your renewable energy assets.
+        """)
+        
+    def load_asset_data(self):
+        """Load data for the selected asset"""
+        if not st.session_state.selected_asset:
+            return False
+            
+        try:
+            filepath = st.session_state.selected_asset['data_file']
+            data = pd.read_csv(filepath)
+            data['Date'] = pd.to_datetime(data['Date'])
+            
+            # Detect generation type
+            if 'Solar (MWh)' in data.columns:
+                generation_col = 'Solar (MWh)'
+                generation_type = 'Solar'
+            elif 'Wind (MWh)' in data.columns:
+                generation_col = 'Wind (MWh)'
+                generation_type = 'Wind'
+            else:
+                st.error("No 'Solar (MWh)' or 'Wind (MWh)' column found in the data!")
+                return False
+            
+            # Create standardized column
+            data['Generation (MWh)'] = data[generation_col]
+            
+            # Check for Month column
+            if 'Month' not in data.columns:
+                data['Month'] = data['Date'].dt.month
+            
+            # Add Year column
+            data['Year'] = data['Date'].dt.year
+            
+            # Store in session state
+            st.session_state.data = data
+            st.session_state.data_loaded = True
+            st.session_state.generation_type = generation_type
+            st.session_state.generation_col = generation_col
+            
+            # Get facility capacity from selected asset
+            site_data = st.session_state.selected_asset['site_data']
+            st.session_state.facility_capacity = site_data['ac_capacity_mw']
+            
+            return True
+            
+        except Exception as e:
+            st.error(f"Error loading data: {str(e)}")
+            return False
+            
+    def analysis_page(self):
+        """Main analysis page"""
+        # Add back button
+        if st.button("← Back to Asset Selection", type="secondary"):
+            st.session_state.page = 'asset_selection'
+            st.session_state.data_loaded = False
+            st.session_state.selected_asset = None
+            st.rerun()
+            
+        # Display selected asset info
+        if st.session_state.selected_asset:
+            site_data = st.session_state.selected_asset['site_data']
+            gen_type = site_data['site_type'].title()
+            icon = "☀️" if gen_type.lower() == "solar" else "💨"
+            
+            st.title(f"{icon} {site_data['site_name'].replace('_', ' ')} - Parametric Insurance Analysis")
+            
+            # Asset summary
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Type", gen_type)
+            with col2:
+                st.metric("Location", f"{site_data['county']}, {site_data['state']}")
+            with col3:
+                st.metric("AC Capacity", f"{site_data['ac_capacity_mw']:.1f} MW")
+            with col4:
+                st.metric("Online Since", f"{site_data['start_month']} {int(site_data['start_year'])}")
+                
+            st.markdown("---")
+            
+            # Load data if not already loaded
+            if not st.session_state.data_loaded:
+                if not self.load_asset_data():
+                    return
+                    
+            # Show data summary
+            data = st.session_state.data
+            st.success(f"✅ Loaded {len(data)} months of {st.session_state.generation_type} generation data")
+            
+            # Continue with analysis sections
+            self.analysis_parameters_section()
+            st.markdown("---")
+            
+            self.pricing_parameters_section()
+            st.markdown("---")
+            
+            # Analysis section
+            self.run_analysis()
+            st.markdown("---")
+            
+            # Results section
+            self.display_results()
             
     def analysis_parameters_section(self):
         """Handle analysis parameters selection"""
@@ -547,140 +630,6 @@ class SolarInsurancePricingApp:
             
             # Confidence adjustment
             st.markdown("---")
-            confidence_adjustment = st.checkbox(
-                "Auto-adjust for data confidence",
-                value=False,
-                help="Automatically increase risk load for months with limited historical data."
-            )
-        else:
-            # No capacity data
-            st.warning("⚠️ Facility capacity not found in site registry. Using generation-based coverage calculation.")
-            
-            col3, col4 = st.columns(2)
-            
-            with col3:
-                energy_price = st.number_input(
-                    "Energy Price ($/MWh):",
-                    min_value=10,
-                    max_value=150,
-                    value=30,
-                    step=5,
-                    help="Market price per MWh (default: $30)"
-                )
-            
-            with col4:
-                avg_monthly_gen = st.session_state.data['Generation (MWh)'].mean() if st.session_state.data_loaded else 2000
-                avg_monthly_revenue = avg_monthly_gen * energy_price
-                annual_revenue = avg_monthly_revenue * 12
-                
-                st.metric("Avg Monthly Revenue", f"${avg_monthly_revenue:,.0f}")
-                st.metric("Est. Annual Revenue", f"${annual_revenue:,.0f}")
-            
-            # Parametric Insurance Limit Structure
-            st.subheader("🎯 Parametric Insurance Limits")
-            
-            with st.expander("📚 Understanding Parametric Insurance Limits", expanded=False):
-                st.markdown("""
-                **Why Two Types of Limits?**
-                
-                Unlike traditional insurance with one large annual limit, parametric insurance uses:
-                
-                1. **Monthly Limit (Per-Event)**: Maximum payout for any single month
-                   - Typical: 30-50% of average monthly revenue
-                   - Controls per-event exposure
-                   
-                2. **Annual Aggregate Limit**: Maximum total payout across all months
-                   - Typical: 8-15x monthly limit
-                   - Controls total annual exposure
-                
-                **Example:**
-                - Monthly revenue: $100,000
-                - Monthly limit: $30,000 (30%)
-                - Annual limit: $300,000 (10x monthly)
-                - Even if 12 months breach, max payout = $300,000
-                
-                This structure provides meaningful coverage with controlled exposure.
-                """)
-            
-            # Monthly limit selection
-            st.markdown("### 📅 Monthly Limit (Per-Event)")
-            
-            col5, col6 = st.columns(2)
-            
-            with col5:
-                monthly_limit_pct = st.slider(
-                    "Monthly limit as % of avg monthly revenue:",
-                    min_value=20,
-                    max_value=70,
-                    value=40,
-                    step=5,
-                    help="Choose based on your risk tolerance and budget"
-                )
-                monthly_limit = avg_monthly_revenue * (monthly_limit_pct / 100)
-            
-            with col6:
-                st.metric("Monthly Limit", f"${monthly_limit:,.0f}")
-                st.caption(f"{monthly_limit_pct}% of ${avg_monthly_revenue:,.0f} avg monthly revenue")
-            
-            # Annual aggregate limit selection
-            st.markdown("### 📊 Annual Aggregate Limit")
-            
-            limit_basis = st.radio(
-                "Set annual limit based on:",
-                options=["Multiple of Monthly Limit", "% of Annual Revenue"],
-                horizontal=True
-            )
-            
-            col7, col8 = st.columns(2)
-            
-            if limit_basis == "Multiple of Monthly Limit":
-                with col7:
-                    annual_limit_multiple = st.slider(
-                        "Annual limit as multiple of monthly:",
-                        min_value=6,
-                        max_value=20,
-                        value=10,
-                        step=1,
-                        help="Higher multiple = more annual coverage"
-                    )
-                    annual_aggregate_limit = monthly_limit * annual_limit_multiple
-                
-                with col8:
-                    st.metric("Annual Aggregate Limit", f"${annual_aggregate_limit:,.0f}")
-                    st.caption(f"{annual_limit_multiple}x monthly limit of ${monthly_limit:,.0f}")
-            else:
-                with col7:
-                    annual_limit_pct = st.slider(
-                        "Annual limit as % of annual revenue:",
-                        min_value=5,
-                        max_value=25,
-                        value=10,
-                        step=1,
-                        help="Choose based on your coverage needs"
-                    )
-                    annual_aggregate_limit = annual_revenue * (annual_limit_pct / 100)
-                
-                with col8:
-                    st.metric("Annual Aggregate Limit", f"${annual_aggregate_limit:,.0f}")
-                    st.caption(f"{annual_limit_pct}% of ${annual_revenue:,.0f} annual revenue")
-            
-            st.success(f"""
-            ✅ **Parametric Coverage Structure:**
-            - **Per-Event**: Max ${monthly_limit:,.0f} per month
-            - **Annual Aggregate**: Max ${annual_aggregate_limit:,.0f} per year
-            - **Effective Multiple**: {annual_aggregate_limit/monthly_limit:.1f}x monthly
-            """)
-            
-            coverage_limit = annual_aggregate_limit
-            st.session_state.monthly_limit = monthly_limit
-                
-            st.info("""
-            💡 **Tip**: Add your facility to site_registry.csv with the following columns:
-            - plant_code: Your facility's plant code
-            - site_name: Facility name (should match Plant Name in generation data)
-            - ac_capacity_mw: AC capacity in MW (use this, not DC)
-            """)
-            
             confidence_adjustment = st.checkbox(
                 "Auto-adjust for data confidence",
                 value=False,
@@ -1122,38 +1071,6 @@ class SolarInsurancePricingApp:
                     f"{monthly_avg:,.0f} MWh",
                     f"{(monthly_avg/theoretical_monthly - 1)*100:+.1f}% vs expected"
                 )
-        else:
-            # If capacity not found
-            total_generation = st.session_state.analysis_data['Generation (MWh)'].sum()
-            total_months = len(st.session_state.analysis_data)
-            monthly_avg = total_generation / total_months
-            
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                st.metric(
-                    "AC Capacity",
-                    "Not Found",
-                    "Check site registry",
-                    help="Could not match facility in site registry"
-                )
-                
-            with col2:
-                st.metric(
-                    "Avg Monthly Generation",
-                    f"{monthly_avg:,.0f} MWh",
-                    f"Over {total_months} months"
-                )
-                
-            with col3:
-                annual_avg = monthly_avg * 12
-                st.metric(
-                    "Annual Generation",
-                    f"{annual_avg:,.0f} MWh/yr",
-                    f"${annual_avg * st.session_state.energy_price:,.0f}/yr"
-                )
-            
-            st.warning("⚠️ Facility capacity not found in site registry. Coverage limit calculations will use generation-based estimates.")
         
         # Show parametric limits if available
         if hasattr(st.session_state, 'monthly_limit'):
@@ -1433,9 +1350,6 @@ class SolarInsurancePricingApp:
             # Monthly premium
             st.metric("Monthly Premium", f"${total_premium/12:,.0f}")
             
-            # Show ROL without judgment - let numbers speak for themselves
-            # Just display the metric without warnings about what's "good" or "bad"
-                
             # Why parametric ROL differs from traditional
             with st.expander("Understanding Rate on Line"):
                 st.markdown("""
@@ -1589,6 +1503,7 @@ class SolarInsurancePricingApp:
     def generate_pricing_report(self, total_premium, rate_on_line, actual_risk_load):
         """Generate downloadable pricing report"""
         gen_type = st.session_state.get('generation_type', 'Renewable Energy')
+        site_data = st.session_state.selected_asset['site_data']
         
         # Get annual loss details
         if st.session_state.annual_loss_analysis:
@@ -1604,27 +1519,20 @@ class SolarInsurancePricingApp:
 Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}
 
 FACILITY INFORMATION
-File: {st.session_state.selected_file}
-Generation Type: {gen_type}
+Facility Name: {site_data['site_name'].replace('_', ' ')}
+Plant Code: {site_data['plant_code']}
+Type: {site_data['site_type'].title()}
+Location: {site_data['county']}, {site_data['state']}
+AC Capacity: {site_data['ac_capacity_mw']:.1f} MW
+Online Since: {site_data['start_month']} {int(site_data['start_year'])}
 Analysis Period: {st.session_state.analysis_start_date.strftime('%Y-%m')} to {st.session_state.data['Date'].max().strftime('%Y-%m')}
 Total Months Analyzed: {len(st.session_state.analysis_data)}
-"""
 
-        if st.session_state.facility_capacity:
-            report += f"AC Capacity: {st.session_state.facility_capacity:.1f} MW\n"
-
-        report += f"""
 COVERAGE PARAMETERS
 Threshold: P{st.session_state.threshold_percentile} ({st.session_state.threshold_percentile}th percentile)
-"""
-        if hasattr(st.session_state, 'monthly_limit'):
-            report += f"""Monthly Limit (Per-Event): ${st.session_state.monthly_limit:,.0f}
+Monthly Limit (Per-Event): ${st.session_state.monthly_limit:,.0f}
 Annual Aggregate Limit: ${st.session_state.coverage_limit:,.0f}
-"""
-        else:
-            report += f"Coverage Limit: ${st.session_state.coverage_limit:,.0f}\n"
-            
-        report += f"""Energy Price: ${st.session_state.energy_price}/MWh
+Energy Price: ${st.session_state.energy_price}/MWh
 
 PRICING PARAMETERS
 Risk Load Factor: {actual_risk_load:.2f}x
@@ -1665,147 +1573,17 @@ MONTHLY BREAKDOWN
         st.download_button(
             label="📥 Download Report",
             data=report,
-            file_name=f"insurance_pricing_report_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
+            file_name=f"{site_data['site_name']}_insurance_pricing_report_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
             mime="text/plain"
         )
         
     def run(self):
         """Main app runner"""
-        # Dynamic title
-        if st.session_state.data_loaded and 'generation_type' in st.session_state:
-            gen_type = st.session_state.generation_type
-            icon = "☀️" if gen_type == "Solar" else "💨"
-            st.title(f"{icon} {gen_type} Generation Parametric Insurance Pricing Tool")
-        else:
-            st.title("⚡ Renewable Energy Parametric Insurance Pricing Tool")
-            
-        # Welcome message
-        if not st.session_state.data_loaded:
-            st.markdown("""
-            ### Welcome! This tool helps you price parametric insurance for renewable energy facilities.
-            
-            **🎯 What is Parametric Insurance?**
-            
-            Unlike traditional insurance that requires damage assessment, parametric insurance pays automatically when 
-            generation falls below a pre-agreed threshold. Perfect for renewable energy because:
-            - ⚡ **Instant payouts** - No claims process needed
-            - 📊 **Objective triggers** - Based on actual generation data
-            - 💰 **Revenue protection** - Covers lost income from low generation
-            - 📈 **Structured limits** - Monthly caps + annual aggregate
-            
-            **📈 How It Works:**
-            1. Set a generation threshold (e.g., 10th percentile of historical data)
-            2. If monthly generation < threshold → Automatic payout
-            3. Payout = MIN[(Threshold - Actual) × Energy Price, Monthly Limit]
-            4. Total annual payouts capped at Annual Aggregate Limit
-            
-            **🎯 Key Features:**
-            This tool uses **correlation-aware pricing** that analyzes actual annual losses rather than assuming 
-            monthly independence. Plus, it implements dual-limit structures
-            (monthly + annual aggregate) common in parametric insurance.
-            
-            **🏢 Perfect for:**
-            - **Project Developers**: Secure financing with revenue guarantees
-            - **Asset Owners**: Protect against weather-related generation losses  
-            - **Lenders**: Reduce project risk with coverage for debt service
-            - **Insurers**: Price products using advanced statistical methods
-            
-            👉 **Get started by loading your generation data below!**
-            """)
-            
-        st.markdown("---")
-        
-        # Sidebar
-        with st.sidebar:
-            st.header("Navigation")
-            steps = ["📂 Data Loading", "⚙️ Parameters", "🚀 Analysis", "📊 Results"]
-            
-            for i, step in enumerate(steps):
-                if i == 0:
-                    st.markdown(f"**{step}**" if not st.session_state.data_loaded else f"✅ {step}")
-                elif i == 1:
-                    st.markdown(f"**{step}**" if st.session_state.data_loaded else f"⏳ {step}")
-                else:
-                    st.markdown(f"**{step}**")
-            
-            st.markdown("---")
-            st.header("❓ Need Help?")
-            
-            with st.expander("Quick Start Guide"):
-                st.markdown("""
-                1. **Load Data**: Select your CSV file with monthly generation data
-                2. **Set Parameters**: Choose VaR threshold and pricing scenario
-                3. **Set Limits**: Configure monthly and annual aggregate limits
-                4. **Run Analysis**: Click the button to calculate VaR and CVaR
-                5. **Review Results**: Check summary, details, and final pricing
-                
-                **Tips:**
-                - Lower percentiles (P1, P5) = more coverage, higher premiums
-                - Different limit structures affect premium and coverage
-                - Pricing scenarios reflect different risk appetites
-                - More historical data = better estimates
-                """)
-            
-            with st.expander("Understanding the Math"):
-                st.markdown("""
-                **VaR (Value at Risk)**
-                - P10 means 10% probability of falling below
-                - This becomes your insurance trigger
-                
-                **CVaR (Conditional VaR)**
-                - Average of all values below VaR
-                - Tells us the typical shortfall amount
-                
-                **Parametric Payout**
-                - Payout = MIN(Shortfall × Price, Monthly Limit)
-                - Annual total capped at aggregate limit
-                
-                **Annual Loss Method**
-                - Calculates actual losses for each year
-                - Captures correlation between months
-                - More accurate than summing monthly losses
-                - Note: Analysis shows uncapped losses; actual payouts would be capped
-                """)
-                
-            with st.expander("Industry Standards"):
-                st.markdown("""
-                **Common Ranges (vary by market):**
-                - Risk Load: 1.2x - 2.0x
-                - Expenses: 15% - 25%
-                - Profit: 8% - 15%
-                - Rate on Line: Varies widely
-                
-                **Typical Limit Structures:**
-                - Monthly: 20-50% of avg monthly revenue
-                - Annual: 6-20x monthly limit
-                
-                **Capacity Factors:**
-                - Solar: 20% - 30%
-                - Wind: 30% - 45%
-                
-                **Energy Prices:**
-                - Market dependent ($10-100/MWh)
-                """)
-                    
-        # Main content
-        if not st.session_state.data_loaded:
-            self.load_data_section()
-        else:
-            st.success(f"✅ Data loaded: {st.session_state.selected_file}")
-            
-            # Parameters section
-            self.analysis_parameters_section()
-            st.markdown("---")
-            
-            self.pricing_parameters_section()
-            st.markdown("---")
-            
-            # Analysis section
-            self.run_analysis()
-            st.markdown("---")
-            
-            # Results section
-            self.display_results()
+        # Check which page to display
+        if st.session_state.page == 'asset_selection':
+            self.asset_selection_page()
+        elif st.session_state.page == 'analysis':
+            self.analysis_page()
 
 # Run the app
 if __name__ == "__main__":
