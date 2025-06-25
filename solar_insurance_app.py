@@ -11,7 +11,7 @@ warnings.filterwarnings('ignore')
 
 # Set page config
 st.set_page_config(
-    page_title="Renewable Energy Insurance Pricing Tool",
+    page_title="Renewable Energy Parametric Insurance Pricing Tool",
     page_icon="⚡",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -228,13 +228,16 @@ class SolarInsurancePricingApp:
             
             **Example:**
             - Threshold (VaR): 2,850 MWh
-            - Actual generation: 2,700 MWh  
-            - Automatic payout: (2,850 - 2,700) × Energy Price
+            - Actual generation: 2,700 MWh
+            - Shortfall: 150 MWh × $30 = $4,500
+            - Monthly limit: $3,000
+            - Actual payout: $3,000 (capped at monthly limit)
             
             **Benefits:**
             - ✅ Instant payouts (no claims process)
             - ✅ Transparent triggers
             - ✅ No need to prove losses
+            - ✅ Predictable maximum exposure
             """)
         
         data = st.session_state.data
@@ -311,8 +314,16 @@ class SolarInsurancePricingApp:
         st.header("💰 Insurance Pricing Parameters")
         
         # Add educational content about pricing
-        with st.expander("📚 How Insurance Pricing Works", expanded=False):
+        with st.expander("📚 How Parametric Insurance Pricing Works", expanded=False):
             st.markdown("""
+            **Parametric vs Traditional Insurance:**
+            
+            Traditional insurance covers actual damages with high limits (80-100% of revenue).
+            Parametric insurance provides quick liquidity with structured limits:
+            - Monthly caps (30-50% of monthly revenue)
+            - Annual aggregate (8-15x monthly)
+            - Higher Rate on Line (15-30% vs 5-10%)
+            
             **Insurance Premium Components:**
             
             1. **Pure Premium** = Expected annual loss (probability × severity)
@@ -320,10 +331,11 @@ class SolarInsurancePricingApp:
             3. **Expenses** = Operating costs (typically 15-25% for renewables)
             4. **Profit Margin** = Target profit (usually 10-15%)
             
-            **Coverage Limit Calculation:**
-            - Based on facility's annual revenue potential
-            - Annual Revenue = Capacity (MW) × Capacity Factor × 8760 hours × Energy Price
-            - Coverage typically 80-100% of annual revenue
+            **Why Higher ROL for Parametric?**
+            - More frequent payouts (monthly triggers)
+            - Automatic payment = higher operational cost
+            - No loss adjustment = pure risk transfer
+            - Lower limits = higher relative cost
             
             **Industry Standard Ranges:**
             - **Conservative**: Risk load 1.8-2.0x, expenses 20-25%, profit 12-15%
@@ -426,48 +438,128 @@ class SolarInsurancePricingApp:
                 )
             
             with col4:
-                # Calculate annual revenue potential
-                annual_generation = st.session_state.facility_capacity * 8760 * capacity_factor
+                # Calculate monthly and annual revenue
+                monthly_generation = st.session_state.facility_capacity * 730 * capacity_factor
+                monthly_revenue = monthly_generation * energy_price
+                annual_generation = monthly_generation * 12
                 annual_revenue = annual_generation * energy_price
                 
-                st.metric("Annual Generation Potential", f"{annual_generation:,.0f} MWh")
+                st.metric("Avg Monthly Revenue", f"${monthly_revenue:,.0f}")
                 st.metric("Annual Revenue Potential", f"${annual_revenue:,.0f}")
                 
-            # Coverage limit options - make % of revenue the default
-            st.subheader("Coverage Limit")
+            # Parametric Insurance Limit Structure
+            st.subheader("🎯 Parametric Insurance Limits")
             
-            coverage_option = st.radio(
-                "Coverage basis:",
-                options=["% of Annual Revenue", "Custom Amount"],
-                horizontal=True,
-                index=0  # Default to % of Annual Revenue
+            # Educational content
+            with st.expander("📚 Understanding Parametric Insurance Limits", expanded=False):
+                st.markdown("""
+                **Why Two Types of Limits?**
+                
+                Unlike traditional insurance with one large annual limit, parametric insurance uses:
+                
+                1. **Monthly Limit (Per-Event)**: Maximum payout for any single month
+                   - Typical: 30-50% of average monthly revenue
+                   - Controls per-event exposure
+                   
+                2. **Annual Aggregate Limit**: Maximum total payout across all months
+                   - Typical: 8-15x monthly limit
+                   - Controls total annual exposure
+                
+                **Example:**
+                - Monthly revenue: $100,000
+                - Monthly limit: $30,000 (30%)
+                - Annual limit: $300,000 (10x monthly)
+                - Even if 12 months breach, max payout = $300,000
+                
+                This structure keeps premiums affordable while providing meaningful coverage!
+                """)
+            
+            # Monthly limit selection
+            st.markdown("### 📅 Monthly Limit (Per-Event)")
+            
+            col5, col6 = st.columns(2)
+            
+            with col5:
+                monthly_limit_pct = st.slider(
+                    "Monthly limit as % of avg monthly revenue:",
+                    min_value=20,
+                    max_value=70,
+                    value=40,
+                    step=5,
+                    help="Typical range: 30-50% for parametric insurance"
+                )
+                monthly_limit = monthly_revenue * (monthly_limit_pct / 100)
+            
+            with col6:
+                st.metric("Monthly Limit", f"${monthly_limit:,.0f}")
+                st.caption(f"{monthly_limit_pct}% of ${monthly_revenue:,.0f} avg monthly revenue")
+            
+            # Annual aggregate limit selection
+            st.markdown("### 📊 Annual Aggregate Limit")
+            
+            limit_basis = st.radio(
+                "Set annual limit based on:",
+                options=["Multiple of Monthly Limit", "% of Annual Revenue"],
+                horizontal=True
             )
             
-            if coverage_option == "% of Annual Revenue":
-                coverage_pct = st.slider(
-                    "Coverage as % of annual revenue:",
-                    min_value=50,
-                    max_value=100,
-                    value=80,
-                    step=5,
-                    help="Typically 80-100% of annual revenue potential"
-                )
-                coverage_limit = annual_revenue * (coverage_pct / 100)
-                st.success(f"📊 Coverage Limit: ${coverage_limit:,.0f} ({coverage_pct}% of ${annual_revenue:,.0f} annual revenue)")
+            col7, col8 = st.columns(2)
+            
+            if limit_basis == "Multiple of Monthly Limit":
+                with col7:
+                    annual_limit_multiple = st.slider(
+                        "Annual limit as multiple of monthly:",
+                        min_value=6,
+                        max_value=20,
+                        value=10,
+                        step=1,
+                        help="Typical range: 8-15x monthly limit"
+                    )
+                    annual_aggregate_limit = monthly_limit * annual_limit_multiple
+                
+                with col8:
+                    st.metric("Annual Aggregate Limit", f"${annual_aggregate_limit:,.0f}")
+                    st.caption(f"{annual_limit_multiple}x monthly limit of ${monthly_limit:,.0f}")
             else:
-                coverage_limit = st.number_input(
-                    "Custom Coverage Limit ($):",
-                    min_value=100_000,
-                    max_value=int(annual_revenue * 2),
-                    value=int(annual_revenue * 0.8),
-                    step=100_000,
-                    help=f"Suggested range: ${annual_revenue*0.5:,.0f} - ${annual_revenue*1.2:,.0f}"
-                )
+                with col7:
+                    annual_limit_pct = st.slider(
+                        "Annual limit as % of annual revenue:",
+                        min_value=5,
+                        max_value=25,
+                        value=10,
+                        step=1,
+                        help="Typical range: 8-15% for parametric insurance"
+                    )
+                    annual_aggregate_limit = annual_revenue * (annual_limit_pct / 100)
+                
+                with col8:
+                    st.metric("Annual Aggregate Limit", f"${annual_aggregate_limit:,.0f}")
+                    st.caption(f"{annual_limit_pct}% of ${annual_revenue:,.0f} annual revenue")
+            
+            # Summary of limits
+            st.success(f"""
+            ✅ **Parametric Coverage Structure:**
+            - **Per-Event**: Max ${monthly_limit:,.0f} per month
+            - **Annual Aggregate**: Max ${annual_aggregate_limit:,.0f} per year
+            - **Effective Multiple**: {annual_aggregate_limit/monthly_limit:.1f}x monthly
+            """)
+            
+            # Store the annual aggregate as coverage limit for ROL calculation
+            coverage_limit = annual_aggregate_limit
+            st.session_state.monthly_limit = monthly_limit
+            
+            # Add confidence adjustment option
+            st.markdown("---")
+            confidence_adjustment = st.checkbox(
+                "Auto-adjust for data confidence",
+                value=False,
+                help="Automatically increase risk load for months with limited historical data."
+            )
         else:
             # No capacity data - use generation-based inputs
             st.warning("⚠️ Facility capacity not found in site registry. Using generation-based coverage calculation.")
             
-            col3, col4, col5 = st.columns(3)
+            col3, col4 = st.columns(2)
             
             with col3:
                 energy_price = st.number_input(
@@ -482,21 +574,112 @@ class SolarInsurancePricingApp:
             with col4:
                 # Calculate from historical generation
                 avg_monthly_gen = st.session_state.data['Generation (MWh)'].mean() if st.session_state.data_loaded else 2000
-                estimated_annual_gen = avg_monthly_gen * 12
-                estimated_annual_revenue = estimated_annual_gen * energy_price
+                avg_monthly_revenue = avg_monthly_gen * energy_price
+                annual_revenue = avg_monthly_revenue * 12
                 
-                st.metric("Est. Annual Generation", f"{estimated_annual_gen:,.0f} MWh")
-                st.metric("Est. Annual Revenue", f"${estimated_annual_revenue:,.0f}")
+                st.metric("Avg Monthly Revenue", f"${avg_monthly_revenue:,.0f}")
+                st.metric("Est. Annual Revenue", f"${annual_revenue:,.0f}")
+            
+            # Parametric Insurance Limit Structure
+            st.subheader("🎯 Parametric Insurance Limits")
+            
+            # Educational content
+            with st.expander("📚 Understanding Parametric Insurance Limits", expanded=False):
+                st.markdown("""
+                **Why Two Types of Limits?**
                 
+                Unlike traditional insurance with one large annual limit, parametric insurance uses:
+                
+                1. **Monthly Limit (Per-Event)**: Maximum payout for any single month
+                   - Typical: 30-50% of average monthly revenue
+                   - Controls per-event exposure
+                   
+                2. **Annual Aggregate Limit**: Maximum total payout across all months
+                   - Typical: 8-15x monthly limit
+                   - Controls total annual exposure
+                
+                **Example:**
+                - Monthly revenue: $100,000
+                - Monthly limit: $30,000 (30%)
+                - Annual limit: $300,000 (10x monthly)
+                - Even if 12 months breach, max payout = $300,000
+                
+                This structure keeps premiums affordable while providing meaningful coverage!
+                """)
+            
+            # Monthly limit selection
+            st.markdown("### 📅 Monthly Limit (Per-Event)")
+            
+            col5, col6 = st.columns(2)
+            
             with col5:
-                coverage_limit = st.number_input(
-                    "Coverage Limit ($):",
-                    min_value=100_000,
-                    max_value=50_000_000,
-                    value=min(int(estimated_annual_revenue * 0.8), 10_000_000),
-                    step=100_000,
-                    help=f"Suggested: 80% of annual revenue = ${estimated_annual_revenue * 0.8:,.0f}"
+                monthly_limit_pct = st.slider(
+                    "Monthly limit as % of avg monthly revenue:",
+                    min_value=20,
+                    max_value=70,
+                    value=40,
+                    step=5,
+                    help="Typical range: 30-50% for parametric insurance"
                 )
+                monthly_limit = avg_monthly_revenue * (monthly_limit_pct / 100)
+            
+            with col6:
+                st.metric("Monthly Limit", f"${monthly_limit:,.0f}")
+                st.caption(f"{monthly_limit_pct}% of ${avg_monthly_revenue:,.0f} avg monthly revenue")
+            
+            # Annual aggregate limit selection
+            st.markdown("### 📊 Annual Aggregate Limit")
+            
+            limit_basis = st.radio(
+                "Set annual limit based on:",
+                options=["Multiple of Monthly Limit", "% of Annual Revenue"],
+                horizontal=True
+            )
+            
+            col7, col8 = st.columns(2)
+            
+            if limit_basis == "Multiple of Monthly Limit":
+                with col7:
+                    annual_limit_multiple = st.slider(
+                        "Annual limit as multiple of monthly:",
+                        min_value=6,
+                        max_value=20,
+                        value=10,
+                        step=1,
+                        help="Typical range: 8-15x monthly limit"
+                    )
+                    annual_aggregate_limit = monthly_limit * annual_limit_multiple
+                
+                with col8:
+                    st.metric("Annual Aggregate Limit", f"${annual_aggregate_limit:,.0f}")
+                    st.caption(f"{annual_limit_multiple}x monthly limit of ${monthly_limit:,.0f}")
+            else:
+                with col7:
+                    annual_limit_pct = st.slider(
+                        "Annual limit as % of annual revenue:",
+                        min_value=5,
+                        max_value=25,
+                        value=10,
+                        step=1,
+                        help="Typical range: 8-15% for parametric insurance"
+                    )
+                    annual_aggregate_limit = annual_revenue * (annual_limit_pct / 100)
+                
+                with col8:
+                    st.metric("Annual Aggregate Limit", f"${annual_aggregate_limit:,.0f}")
+                    st.caption(f"{annual_limit_pct}% of ${annual_revenue:,.0f} annual revenue")
+            
+            # Summary of limits
+            st.success(f"""
+            ✅ **Parametric Coverage Structure:**
+            - **Per-Event**: Max ${monthly_limit:,.0f} per month
+            - **Annual Aggregate**: Max ${annual_aggregate_limit:,.0f} per year
+            - **Effective Multiple**: {annual_aggregate_limit/monthly_limit:.1f}x monthly
+            """)
+            
+            # Store the annual aggregate as coverage limit for ROL calculation
+            coverage_limit = annual_aggregate_limit
+            st.session_state.monthly_limit = monthly_limit
                 
             st.info("""
             💡 **Tip**: Add your facility to site_registry.csv with the following columns:
@@ -517,7 +700,7 @@ class SolarInsurancePricingApp:
         st.session_state.profit_margin = profit_pct / 100
         st.session_state.energy_price = energy_price
         st.session_state.coverage_limit = coverage_limit
-        st.session_state.confidence_adjustment = confidence_adjustment if 'confidence_adjustment' in locals() else False
+        st.session_state.confidence_adjustment = confidence_adjustment
         
     def run_analysis(self):
         """Run the complete analysis"""
@@ -852,10 +1035,16 @@ class SolarInsurancePricingApp:
             - CVaR: (2,800 + 2,700) / 2 = 2,750 MWh
             - Average shortfall: 2,850 - 2,750 = 100 MWh
             
+            **Parametric Payout Calculation:**
+            - Shortfall: 100 MWh × $30 = $3,000
+            - Monthly limit: $25,000
+            - Actual payout: $3,000 (within limit ✓)
+            
             **Why it matters:**
             - VaR tells us WHEN to pay (the trigger)
-            - CVaR tells us HOW MUCH to pay (average payout)
-            - Expected Loss = Historical average of annual losses (accounts for correlation)
+            - CVaR tells us HOW MUCH shortfall to expect
+            - Monthly limit caps the actual payout
+            - Expected Loss = Historical average of annual losses (accounts for correlation and limits)
             """)
         
         # Get annual analysis results
@@ -974,7 +1163,16 @@ class SolarInsurancePricingApp:
                     f"${annual_avg * st.session_state.energy_price:,.0f}/yr"
                 )
                 
-            st.warning("⚠️ Facility capacity not found in site registry. Coverage limit calculations will use generation-based estimates.")
+                            st.warning("⚠️ Facility capacity not found in site registry. Coverage limit calculations will use generation-based estimates.")
+                
+            # Show parametric limits if available
+            if hasattr(st.session_state, 'monthly_limit'):
+                st.info(f"""
+                📋 **Parametric Limit Structure:**
+                - Monthly Limit: ${st.session_state.monthly_limit:,.0f}
+                - Annual Aggregate: ${st.session_state.coverage_limit:,.0f}
+                - Effective Multiple: {st.session_state.coverage_limit/st.session_state.monthly_limit:.1f}x
+                """)
                     
     def display_monthly_details(self):
         """Display detailed monthly results"""
@@ -1088,6 +1286,12 @@ class SolarInsurancePricingApp:
         The annual analysis captures the natural correlation between months. Notice how breach events 
         tend to cluster in certain years (e.g., drought years affecting multiple months). This gives 
         a more realistic expected loss than assuming each month is independent.
+        
+        **Note:** The analysis above shows uncapped losses. In practice, parametric insurance would cap:
+        - Each monthly payout at the monthly limit
+        - Total annual payouts at the annual aggregate limit
+        
+        This capping significantly reduces actual payouts compared to raw shortfalls shown here.
         """)
         
         # Compare with independent assumption
@@ -1131,7 +1335,10 @@ class SolarInsurancePricingApp:
             Final Annual Premium 💰
             ```
             
-            **Key Improvement**: We use actual annual losses (not sum of monthly) to account for correlation!
+            **Key Improvements:**
+            1. We use actual annual losses (not sum of monthly) to account for correlation
+            2. Parametric structure with monthly + annual limits keeps coverage affordable
+            3. Expected losses shown are before applying caps - actual payouts would be lower
             """)
         
         # Use annual loss analysis if available
@@ -1214,16 +1421,25 @@ class SolarInsurancePricingApp:
             # Highlight final premium
             st.success(f"### 💰 TOTAL ANNUAL PREMIUM: ${total_premium:,.0f}")
             
-            # Monthly breakdown
-            st.info(f"**Monthly Premium**: ${total_premium/12:,.0f} | **Daily Premium**: ${total_premium/365:,.0f}")
+            # Show limit structure
+            if hasattr(st.session_state, 'monthly_limit'):
+                st.info(f"""
+                **Coverage Structure:**
+                - Monthly Limit: ${st.session_state.monthly_limit:,.0f} per event
+                - Annual Aggregate: ${st.session_state.coverage_limit:,.0f} total
+                - Monthly Premium: ${total_premium/12:,.0f}
+                """)
+            else:
+                # Monthly breakdown
+                st.info(f"**Monthly Premium**: ${total_premium/12:,.0f} | **Daily Premium**: ${total_premium/365:,.0f}")
             
         with col2:
             st.markdown("### Key Metrics")
             
-            # Rate on line
+            # Rate on line - now correctly based on annual aggregate limit
             rate_on_line = (total_premium / st.session_state.coverage_limit) * 100
             st.metric("Rate on Line", f"{rate_on_line:.2f}%", 
-                     help="Premium as % of limit. Industry standard: 2-10% for renewable energy")
+                     help="Premium as % of annual aggregate limit. Parametric standard: 15-30%")
             
             # Loss ratio
             expected_loss_ratio = (pure_premium / total_premium) * 100
@@ -1233,13 +1449,30 @@ class SolarInsurancePricingApp:
             # Monthly premium
             st.metric("Monthly Premium", f"${total_premium/12:,.0f}")
             
-            # Add industry benchmark comparison
-            if rate_on_line < 2:
-                st.warning("⚠️ Rate on Line below 2% - may be underpriced")
-            elif rate_on_line > 10:
-                st.warning("⚠️ Rate on Line above 10% - may be uncompetitive")
+            # Add parametric benchmark comparison
+            if rate_on_line < 15:
+                st.warning("⚠️ Rate on Line below 15% - may be underpriced for parametric")
+            elif rate_on_line > 40:
+                st.warning("⚠️ Rate on Line above 40% - may be uncompetitive")
             else:
-                st.success("✅ Rate on Line within industry norms")
+                st.success("✅ Rate on Line within parametric insurance norms (15-30%)")
+                
+            # Show why parametric ROL is higher
+            with st.expander("Why is parametric ROL higher?"):
+                st.markdown("""
+                **Traditional Insurance ROL: 2-10%**
+                - One potential claim per year
+                - High deductibles
+                - Coverage = 80-100% of revenue
+                
+                **Parametric Insurance ROL: 15-30%**
+                - Multiple monthly triggers possible
+                - No deductibles (typically)
+                - Lower limits (10-15% of revenue)
+                - Automatic payments = higher ops cost
+                
+                Your effective exposure is similar, just structured differently!
+                """)
                 
         # Additional pricing insights
         st.markdown("---")
@@ -1265,20 +1498,25 @@ class SolarInsurancePricingApp:
             if st.session_state.annual_loss_analysis:
                 max_annual_loss = st.session_state.annual_loss_analysis['max_annual_loss'] * energy_price
                 percentile_95_loss = st.session_state.annual_loss_analysis['percentile_95'] * energy_price
+                mean_annual_loss = st.session_state.annual_loss_analysis['mean_annual_loss'] * energy_price
                 
-                coverage_adequacy = (st.session_state.coverage_limit / max_annual_loss) * 100
+                coverage_adequacy = (st.session_state.coverage_limit / percentile_95_loss) * 100
                 
                 if coverage_adequacy < 100:
-                    st.error(f"⚠️ Coverage may be insufficient: {coverage_adequacy:.0f}% of historical max")
+                    st.warning(f"⚠️ Coverage below 95th percentile: {coverage_adequacy:.0f}%")
                 else:
-                    st.success(f"✅ Coverage adequate: {coverage_adequacy:.0f}% of historical max")
+                    st.success(f"✅ Coverage adequate: {coverage_adequacy:.0f}% of P95 loss")
                     
                 st.info(f"""
-                **Coverage Analysis:**
-                - Historical max annual loss: ${max_annual_loss:,.0f}
+                **Annual Loss Analysis:**
+                - Mean annual loss: ${mean_annual_loss:,.0f}
                 - 95th percentile loss: ${percentile_95_loss:,.0f}
-                - Current limit: ${st.session_state.coverage_limit:,.0f}
-                - Coverage ratio: {coverage_adequacy:.0f}%
+                - Historical max loss: ${max_annual_loss:,.0f}
+                - Annual limit: ${st.session_state.coverage_limit:,.0f}
+                
+                **Coverage Ratios:**
+                - Covers {(st.session_state.coverage_limit/mean_annual_loss):.1f}x average loss
+                - Covers {(st.session_state.coverage_limit/percentile_95_loss):.0f}% of P95 loss
                 """)
                 
         # Download pricing report
@@ -1403,8 +1641,15 @@ Total Months Analyzed: {len(st.session_state.analysis_data)}
         report += f"""
 COVERAGE PARAMETERS
 Threshold: P{st.session_state.threshold_percentile} ({st.session_state.threshold_percentile}th percentile)
-Coverage Limit: ${st.session_state.coverage_limit:,.0f}
-Energy Price: ${st.session_state.energy_price}/MWh
+"""
+        if hasattr(st.session_state, 'monthly_limit'):
+            report += f"""Monthly Limit (Per-Event): ${st.session_state.monthly_limit:,.0f}
+Annual Aggregate Limit: ${st.session_state.coverage_limit:,.0f}
+"""
+        else:
+            report += f"Coverage Limit: ${st.session_state.coverage_limit:,.0f}\n"
+            
+        report += f"""Energy Price: ${st.session_state.energy_price}/MWh
 
 PRICING PARAMETERS
 Risk Load Factor: {actual_risk_load:.2f}x
@@ -1419,7 +1664,7 @@ Annual Expected Loss Value: ${expected_annual_loss * st.session_state.energy_pri
 FINAL PRICING
 Annual Premium: ${total_premium:,.0f}
 Monthly Premium: ${total_premium/12:,.0f}
-Rate on Line: {rate_on_line:.2f}%
+Rate on Line: {rate_on_line:.2f}% (of annual aggregate limit)
 Expected Loss Ratio: {(expected_annual_loss * st.session_state.energy_price / total_premium) * 100:.1f}%
 
 MONTHLY BREAKDOWN
@@ -1475,11 +1720,13 @@ MONTHLY BREAKDOWN
             **📈 How It Works:**
             1. Set a generation threshold (e.g., 10th percentile of historical data)
             2. If monthly generation < threshold → Automatic payout
-            3. Payout = (Threshold - Actual) × Energy Price
+            3. Payout = MIN[(Threshold - Actual) × Energy Price, Monthly Limit]
+            4. Total annual payouts capped at Annual Aggregate Limit
             
             **🎯 Key Innovation:**
             This tool uses **correlation-aware pricing** that analyzes actual annual losses rather than assuming 
-            monthly independence, resulting in more accurate (and often lower) premiums.
+            monthly independence, resulting in more accurate (and often lower) premiums. Plus, it properly structures
+            limits for parametric insurance (monthly + annual aggregate) rather than traditional single limits.
             
             **🏢 Perfect for:**
             - **Project Developers**: Secure financing with revenue guarantees
@@ -1513,11 +1760,13 @@ MONTHLY BREAKDOWN
                 st.markdown("""
                 1. **Load Data**: Select your CSV file with monthly generation data
                 2. **Set Parameters**: Choose VaR threshold and pricing scenario
-                3. **Run Analysis**: Click the button to calculate VaR and CVaR
-                4. **Review Results**: Check summary, details, and final pricing
+                3. **Set Limits**: Configure monthly and annual aggregate limits
+                4. **Run Analysis**: Click the button to calculate VaR and CVaR
+                5. **Review Results**: Check summary, details, and final pricing
                 
                 **Tips:**
                 - Lower percentiles (P1, P5) = more coverage but higher premiums
+                - Lower limits = more affordable premiums
                 - Conservative pricing = safer but more expensive
                 - More historical data = better estimates
                 """)
@@ -1530,21 +1779,30 @@ MONTHLY BREAKDOWN
                 
                 **CVaR (Conditional VaR)**
                 - Average of all values below VaR
-                - Tells us the typical payout amount
+                - Tells us the typical shortfall amount
+                
+                **Parametric Payout**
+                - Payout = MIN(Shortfall × Price, Monthly Limit)
+                - Annual total capped at aggregate limit
                 
                 **Annual Loss Method**
                 - Calculates actual losses for each year
                 - Captures correlation between months
                 - More accurate than summing monthly losses
+                - Note: Analysis shows uncapped losses; actual payouts would be capped
                 """)
                 
             with st.expander("Industry Standards"):
                 st.markdown("""
-                **Typical Ranges:**
+                **Parametric Insurance Ranges:**
                 - Risk Load: 1.2x - 2.0x
                 - Expenses: 15% - 25%
                 - Profit: 8% - 15%
-                - Rate on Line: 2% - 10%
+                - Rate on Line: 15% - 30%
+                
+                **Limit Structure:**
+                - Monthly: 30-50% of avg monthly revenue
+                - Annual: 8-15x monthly limit
                 
                 **Capacity Factors:**
                 - Solar: 20% - 30%
