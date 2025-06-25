@@ -54,14 +54,13 @@ class SolarInsurancePricingApp:
             
     def load_data_section(self):
         """Handle data loading section"""
-        st.header("📂 Data Loading")
+        st.header("📂 Step 1: Select Your Data")
         
         # Get data directory
         data_dir = Path("actual_generation")
         
         if not data_dir.exists():
             st.error(f"Data directory not found at {data_dir}")
-            st.info("Please ensure the 'actual_generation' folder is in the correct location")
             return False
             
         # List available files
@@ -70,102 +69,94 @@ class SolarInsurancePricingApp:
             st.error("No CSV files found in the actual_generation directory!")
             return False
             
-        # Single-click file selection that auto-loads
+        # File selection with auto-load
         file_names = [f.name for f in csv_files]
-        
-        # Add a placeholder option
-        options = ["Select a file to load..."] + file_names
-        
         selected_file = st.selectbox(
             "Select generation data file:",
-            options=options,
-            index=0
+            options=file_names,
+            index=file_names.index("Blue_Wing_Solar_Energy_actual_generation.csv") if "Blue_Wing_Solar_Energy_actual_generation.csv" in file_names else 0,
+            help="Choose your facility's generation data file"
         )
         
-        # Auto-load when file is selected (no button needed)
-        if selected_file != "Select a file to load...":
+        # Auto-load when selection changes
+        if 'last_selected_file' not in st.session_state or st.session_state.last_selected_file != selected_file:
+            st.session_state.last_selected_file = selected_file
             filepath = data_dir / selected_file
             try:
-                # Show loading spinner
-                with st.spinner(f"Loading {selected_file}..."):
-                    data = pd.read_csv(filepath)
-                    data['Date'] = pd.to_datetime(data['Date'])
-                    
-                    # Detect generation type
-                    if 'Solar (MWh)' in data.columns:
-                        generation_col = 'Solar (MWh)'
-                        generation_type = 'Solar'
-                    elif 'Wind (MWh)' in data.columns:
-                        generation_col = 'Wind (MWh)'
-                        generation_type = 'Wind'
-                    else:
-                        st.error("No 'Solar (MWh)' or 'Wind (MWh)' column found in the data!")
-                        return False
-                    
-                    # Create standardized column
-                    data['Generation (MWh)'] = data[generation_col]
-                    
-                    # Check for Month column
-                    if 'Month' not in data.columns:
-                        data['Month'] = data['Date'].dt.month
-                    
-                    # Add Year column
-                    data['Year'] = data['Date'].dt.year
-                    
-                    # Store in session state
-                    st.session_state.data = data
-                    st.session_state.data_loaded = True
-                    st.session_state.selected_file = selected_file
-                    st.session_state.generation_type = generation_type
-                    st.session_state.generation_col = generation_col
-                    
-                    # Load site registry
-                    self.load_site_capacity()
-                    
-                    st.success(f"✅ Successfully loaded {len(data)} months of {generation_type} data")
+                data = pd.read_csv(filepath)
+                data['Date'] = pd.to_datetime(data['Date'])
+                
+                # Detect generation type
+                if 'Solar (MWh)' in data.columns:
+                    generation_col = 'Solar (MWh)'
+                    generation_type = 'Solar'
+                elif 'Wind (MWh)' in data.columns:
+                    generation_col = 'Wind (MWh)'
+                    generation_type = 'Wind'
+                else:
+                    st.error("No 'Solar (MWh)' or 'Wind (MWh)' column found in the data!")
+                    return False
+                
+                # Create standardized column
+                data['Generation (MWh)'] = data[generation_col]
+                
+                # Check for Month column
+                if 'Month' not in data.columns:
+                    data['Month'] = data['Date'].dt.month
+                
+                # Add Year column
+                data['Year'] = data['Date'].dt.year
+                
+                # Store in session state
+                st.session_state.data = data
+                st.session_state.data_loaded = True
+                st.session_state.selected_file = selected_file
+                st.session_state.generation_type = generation_type
+                st.session_state.generation_col = generation_col
+                
+                # Load site registry
+                self.load_site_capacity()
+                
+                st.success(f"✅ Loaded {len(data)} months of {generation_type} data from {selected_file}")
                 
             except Exception as e:
                 st.error(f"Error loading data: {str(e)}")
                 return False
-                
-        # Display data info if loaded
+        
+        # Display summary metrics if data loaded
         if st.session_state.data_loaded:
             data = st.session_state.data
             gen_type = st.session_state.generation_type
             
-            # Quick stats in columns
+            # Summary metrics in columns
             col1, col2, col3, col4 = st.columns(4)
             
             with col1:
-                st.metric("Total Months", len(data))
+                st.metric("Facility Type", gen_type)
             with col2:
-                st.metric("Date Range", f"{data['Date'].min().strftime('%Y-%m')} to {data['Date'].max().strftime('%Y-%m')}")
+                st.metric("Data Points", f"{len(data)} months")
             with col3:
-                st.metric(f"Avg Monthly {gen_type}", f"{data['Generation (MWh)'].mean():,.0f} MWh")
+                st.metric("Period", f"{data['Date'].min().strftime('%Y')} - {data['Date'].max().strftime('%Y')}")
             with col4:
                 if st.session_state.facility_capacity:
-                    st.metric("AC Capacity", f"{st.session_state.facility_capacity:,.1f} MW")
+                    st.metric("AC Capacity", f"{st.session_state.facility_capacity:.1f} MW")
                 else:
-                    st.metric(f"Total {gen_type}", f"{data['Generation (MWh)'].sum():,.0f} MWh")
+                    st.metric("AC Capacity", "Not Found")
             
-            # Site Registry Info Box
-            with st.container():
-                if st.session_state.facility_capacity:
-                    st.info(f"""
-                    📋 **Site Registry Match Found:**
-                    - Facility: {st.session_state.get('facility_name', 'Unknown')}
-                    - AC Capacity: {st.session_state.facility_capacity:.1f} MW
-                    - Ready for analysis ✓
-                    """)
-                else:
-                    st.warning("""
-                    ⚠️ **No Site Registry Match**
-                    - Add facility to site_registry.csv for accurate capacity-based calculations
-                    - Will use generation-based estimates
-                    """)
+            # Optional detailed view
+            with st.expander("📊 View Data Details"):
+                # Additional metrics
+                st.markdown("### Generation Statistics")
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric(f"Average Monthly", f"{data['Generation (MWh)'].mean():,.0f} MWh")
+                with col2:
+                    st.metric(f"Total Generation", f"{data['Generation (MWh)'].sum():,.0f} MWh")
+                with col3:
+                    st.metric("Date Range", f"{data['Date'].min().strftime('%Y-%m')} to {data['Date'].max().strftime('%Y-%m')}")
                 
-            # Data preview in expander
-            with st.expander("📊 View Data Preview"):
+                # Data preview
+                st.markdown("### Data Preview")
                 display_cols = ['Date', 'Month-Year', st.session_state.generation_col]
                 available_cols = [col for col in display_cols if col in data.columns]
                 st.dataframe(data[available_cols].head(10))
