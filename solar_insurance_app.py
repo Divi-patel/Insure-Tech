@@ -1163,16 +1163,16 @@ class SolarInsurancePricingApp:
                     f"${annual_avg * st.session_state.energy_price:,.0f}/yr"
                 )
                 
-                            st.warning("⚠️ Facility capacity not found in site registry. Coverage limit calculations will use generation-based estimates.")
+                        st.warning("⚠️ Facility capacity not found in site registry. Coverage limit calculations will use generation-based estimates.")
                 
-            # Show parametric limits if available
-            if hasattr(st.session_state, 'monthly_limit'):
-                st.info(f"""
-                📋 **Parametric Limit Structure:**
-                - Monthly Limit: ${st.session_state.monthly_limit:,.0f}
-                - Annual Aggregate: ${st.session_state.coverage_limit:,.0f}
-                - Effective Multiple: {st.session_state.coverage_limit/st.session_state.monthly_limit:.1f}x
-                """)
+        # Show parametric limits if available
+        if hasattr(st.session_state, 'monthly_limit'):
+            st.info(f"""
+            📋 **Parametric Limit Structure:**
+            - Monthly Limit: ${st.session_state.monthly_limit:,.0f}
+            - Annual Aggregate: ${st.session_state.coverage_limit:,.0f}
+            - Effective Multiple: {st.session_state.coverage_limit/st.session_state.monthly_limit:.1f}x
+            """)
                     
     def display_monthly_details(self):
         """Display detailed monthly results"""
