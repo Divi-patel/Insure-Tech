@@ -11,8 +11,8 @@ warnings.filterwarnings('ignore')
 
 # Set page config
 st.set_page_config(
-    page_title="Solar Insurance Pricing Tool",
-    page_icon="☀️",
+    page_title="Renewable Energy Insurance Pricing Tool",
+    page_icon="⚡",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -46,15 +46,15 @@ class SolarInsurancePricingApp:
             st.session_state.distribution_results = {}
             st.session_state.selected_distributions = {}
             st.session_state.cvar_results = {}
+            st.session_state.generation_type = 'Renewable Energy'
+            st.session_state.generation_col = 'Generation (MWh)'
             
     def load_data_section(self):
         """Handle data loading section"""
         st.header("📂 Data Loading")
         
-        # Get data directory
-        current_dir = Path.cwd()
-        parent_dir = current_dir.parent if (current_dir / "actual_generation").exists() else current_dir
-        data_dir = parent_dir / "actual_generation" if (parent_dir / "actual_generation").exists() else current_dir / "actual_generation"
+        # Get data directory - simplified for Streamlit Cloud
+        data_dir = Path("actual_generation")
         
         if not data_dir.exists():
             st.error(f"Data directory not found at {data_dir}")
@@ -82,12 +82,34 @@ class SolarInsurancePricingApp:
                 data = pd.read_csv(filepath)
                 data['Date'] = pd.to_datetime(data['Date'])
                 
+                # Detect generation type (Solar or Wind)
+                if 'Solar (MWh)' in data.columns:
+                    generation_col = 'Solar (MWh)'
+                    generation_type = 'Solar'
+                elif 'Wind (MWh)' in data.columns:
+                    generation_col = 'Wind (MWh)'
+                    generation_type = 'Wind'
+                else:
+                    st.error("No 'Solar (MWh)' or 'Wind (MWh)' column found in the data!")
+                    return False
+                
+                # Create a standardized column name for analysis
+                data['Generation (MWh)'] = data[generation_col]
+                
+                # Check for Month column
+                if 'Month' not in data.columns:
+                    # Try to extract month from Date if Month column doesn't exist
+                    data['Month'] = data['Date'].dt.month
+                    st.info("Month column not found, extracted from Date column")
+                
                 # Store in session state
                 st.session_state.data = data
                 st.session_state.data_loaded = True
                 st.session_state.selected_file = selected_file
+                st.session_state.generation_type = generation_type
+                st.session_state.generation_col = generation_col
                 
-                st.success(f"✅ Successfully loaded {len(data)} months of data")
+                st.success(f"✅ Successfully loaded {len(data)} months of {generation_type} data")
                 return True
                 
             except Exception as e:
@@ -97,6 +119,8 @@ class SolarInsurancePricingApp:
         # Display data info if loaded
         if st.session_state.data_loaded:
             data = st.session_state.data
+            gen_type = st.session_state.generation_type
+            
             col1, col2, col3, col4 = st.columns(4)
             
             with col1:
@@ -104,13 +128,15 @@ class SolarInsurancePricingApp:
             with col2:
                 st.metric("Date Range", f"{data['Date'].min().strftime('%Y-%m')} to {data['Date'].max().strftime('%Y-%m')}")
             with col3:
-                st.metric("Avg Monthly Generation", f"{data['Solar (MWh)'].mean():,.0f} MWh")
+                st.metric(f"Avg Monthly {gen_type}", f"{data['Generation (MWh)'].mean():,.0f} MWh")
             with col4:
-                st.metric("Total Generation", f"{data['Solar (MWh)'].sum():,.0f} MWh")
+                st.metric(f"Total {gen_type}", f"{data['Generation (MWh)'].sum():,.0f} MWh")
                 
             # Show data preview
             with st.expander("📊 Data Preview"):
-                st.dataframe(data[['Date', 'Month-Year', 'Solar (MWh)']].head(10))
+                display_cols = ['Date', 'Month-Year', st.session_state.generation_col]
+                available_cols = [col for col in display_cols if col in data.columns]
+                st.dataframe(data[available_cols].head(10))
                 
         return st.session_state.data_loaded
         
@@ -166,7 +192,11 @@ class SolarInsurancePricingApp:
         st.session_state.threshold_percentile = threshold_percentile
         
         # Filter data
-        st.session_state.analysis_data = data[data['Date'] >= st.session_state.analysis_start_date].copy()
+        filtered_data = data[data['Date'] >= st.session_state.analysis_start_date].copy()
+        # Ensure Generation (MWh) column exists
+        if 'Generation (MWh)' not in filtered_data.columns and st.session_state.generation_col in filtered_data.columns:
+            filtered_data['Generation (MWh)'] = filtered_data[st.session_state.generation_col]
+        st.session_state.analysis_data = filtered_data
         
         # Show analysis period info
         st.info(f"📊 Analyzing {len(st.session_state.analysis_data)} months from {start_date.strftime('%Y-%m')} | Using P{threshold_percentile} threshold")
@@ -306,7 +336,7 @@ class SolarInsurancePricingApp:
         monthly_stats = {}
         
         for month in range(1, 13):
-            month_data = analysis_data[analysis_data['Month'] == month]['Solar (MWh)'].values
+            month_data = analysis_data[analysis_data['Month'] == month]['Generation (MWh)'].values
             
             if len(month_data) > 0:
                 percentiles = [1, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50]
@@ -445,10 +475,10 @@ class SolarInsurancePricingApp:
             threshold = st.session_state.monthly_stats[month]['var_fitted']
             
             # Find months below threshold
-            below_threshold = month_data_all[month_data_all['Solar (MWh)'] < threshold]
+            below_threshold = month_data_all[month_data_all['Generation (MWh)'] < threshold]
             
             if len(below_threshold) > 0:
-                cvar = below_threshold['Solar (MWh)'].mean()
+                cvar = below_threshold['Generation (MWh)'].mean()
                 shortfall = threshold - cvar
                 
                 cvar_results[month] = {
@@ -460,7 +490,7 @@ class SolarInsurancePricingApp:
                     'cvar': cvar,
                     'average_shortfall': shortfall,
                     'breach_dates': below_threshold['Date'].tolist(),
-                    'breach_values': below_threshold['Solar (MWh)'].tolist()
+                    'breach_values': below_threshold['Generation (MWh)'].tolist()
                 }
             else:
                 cvar_results[month] = {
@@ -734,7 +764,7 @@ class SolarInsurancePricingApp:
             
             ax4.set_xlabel('Generation (MWh)')
             ax4.set_ylabel('Density')
-            ax4.set_title('December Distribution with Threshold')
+            ax4.set_title(f'December {st.session_state.generation_type} Distribution with Threshold')
             ax4.legend()
         
         plt.tight_layout()
@@ -742,12 +772,14 @@ class SolarInsurancePricingApp:
         
     def generate_pricing_report(self, total_premium, rate_on_line, actual_risk_load):
         """Generate downloadable pricing report"""
+        gen_type = st.session_state.get('generation_type', 'Renewable Energy')
         report = f"""
-SOLAR GENERATION PARAMETRIC INSURANCE PRICING REPORT
+{gen_type.upper()} GENERATION PARAMETRIC INSURANCE PRICING REPORT
 Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}
 
 FACILITY INFORMATION
 File: {st.session_state.selected_file}
+Generation Type: {gen_type}
 Analysis Period: {st.session_state.analysis_start_date.strftime('%Y-%m')} to {st.session_state.data['Date'].max().strftime('%Y-%m')}
 Total Months Analyzed: {len(st.session_state.analysis_data)}
 
@@ -786,7 +818,13 @@ MONTHLY BREAKDOWN
         
     def run(self):
         """Main app runner"""
-        st.title("☀️ Solar Generation Parametric Insurance Pricing Tool")
+        # Dynamic title based on loaded data
+        if st.session_state.data_loaded and 'generation_type' in st.session_state:
+            gen_type = st.session_state.generation_type
+            icon = "☀️" if gen_type == "Solar" else "💨"
+            st.title(f"{icon} {gen_type} Generation Parametric Insurance Pricing Tool")
+        else:
+            st.title("⚡ Renewable Energy Parametric Insurance Pricing Tool")
         st.markdown("---")
         
         # Sidebar for navigation
