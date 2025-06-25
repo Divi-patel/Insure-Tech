@@ -323,11 +323,11 @@ class SolarInsurancePricingApp:
             3. **Expenses** = Operating costs (typically 15-25% for renewables)
             4. **Profit Margin** = Target profit (usually 10-15%)
             
-            **Why Higher ROL for Parametric?**
-            - More frequent payouts (monthly triggers)
-            - Automatic payment = higher operational cost
-            - No loss adjustment = pure risk transfer
-            - Lower limits = higher relative cost
+            **Why Parametric ROL Varies:**
+            - Depends on frequency of triggers
+            - Automatic payment systems
+            - Risk transfer efficiency
+            - Lower limits = different pricing dynamics
             
             **Industry Standard Ranges:**
             - **Conservative**: Risk load 1.8-2.0x, expenses 20-25%, profit 12-15%
@@ -445,11 +445,11 @@ class SolarInsurancePricingApp:
                 Unlike traditional insurance with one large annual limit, parametric insurance uses:
                 
                 1. **Monthly Limit (Per-Event)**: Maximum payout for any single month
-                   - Typical: 30-50% of average monthly revenue
+                   - Common range: 20-70% of average monthly revenue
                    - Controls per-event exposure
                    
                 2. **Annual Aggregate Limit**: Maximum total payout across all months
-                   - Typical: 8-15x monthly limit
+                   - Common range: 6-20x monthly limit
                    - Controls total annual exposure
                 
                 **Example:**
@@ -458,7 +458,7 @@ class SolarInsurancePricingApp:
                 - Annual limit: $300,000 (10x monthly)
                 - Even if 12 months breach, max payout = $300,000
                 
-                This structure keeps premiums affordable while providing meaningful coverage!
+                The right structure depends on your risk tolerance and budget.
                 """)
             
             # Monthly limit selection
@@ -473,7 +473,7 @@ class SolarInsurancePricingApp:
                     max_value=70,
                     value=40,
                     step=5,
-                    help="Typical range: 30-50% for parametric insurance"
+                    help="Choose based on your risk tolerance and budget"
                 )
                 monthly_limit = monthly_revenue * (monthly_limit_pct / 100)
             
@@ -500,7 +500,7 @@ class SolarInsurancePricingApp:
                         max_value=20,
                         value=10,
                         step=1,
-                        help="Typical range: 8-15x monthly limit"
+                        help="Higher multiple = more annual coverage"
                     )
                     annual_aggregate_limit = monthly_limit * annual_limit_multiple
                 
@@ -515,7 +515,7 @@ class SolarInsurancePricingApp:
                         max_value=25,
                         value=10,
                         step=1,
-                        help="Typical range: 8-15% for parametric insurance"
+                        help="Choose based on your coverage needs"
                     )
                     annual_aggregate_limit = annual_revenue * (annual_limit_pct / 100)
                 
@@ -587,7 +587,7 @@ class SolarInsurancePricingApp:
                 - Annual limit: $300,000 (10x monthly)
                 - Even if 12 months breach, max payout = $300,000
                 
-                This structure keeps premiums affordable while providing meaningful coverage!
+                This structure provides meaningful coverage with controlled exposure.
                 """)
             
             # Monthly limit selection
@@ -602,7 +602,7 @@ class SolarInsurancePricingApp:
                     max_value=70,
                     value=40,
                     step=5,
-                    help="Typical range: 30-50% for parametric insurance"
+                    help="Choose based on your risk tolerance and budget"
                 )
                 monthly_limit = avg_monthly_revenue * (monthly_limit_pct / 100)
             
@@ -629,7 +629,7 @@ class SolarInsurancePricingApp:
                         max_value=20,
                         value=10,
                         step=1,
-                        help="Typical range: 8-15x monthly limit"
+                        help="Higher multiple = more annual coverage"
                     )
                     annual_aggregate_limit = monthly_limit * annual_limit_multiple
                 
@@ -644,7 +644,7 @@ class SolarInsurancePricingApp:
                         max_value=25,
                         value=10,
                         step=1,
-                        help="Typical range: 8-15% for parametric insurance"
+                        help="Choose based on your coverage needs"
                     )
                     annual_aggregate_limit = annual_revenue * (annual_limit_pct / 100)
                 
@@ -1023,7 +1023,7 @@ class SolarInsurancePricingApp:
             - VaR tells us WHEN to pay (the trigger)
             - CVaR tells us HOW MUCH shortfall to expect
             - Monthly limit caps the actual payout
-            - Expected Loss = Historical average of annual losses (accounts for correlation and limits)
+            - Expected Loss = Historical average of annual losses (accounting for correlation)
             """)
         
         # Get annual analysis results
@@ -1267,8 +1267,6 @@ class SolarInsurancePricingApp:
         **Note:** The analysis above shows uncapped losses. In practice, parametric insurance would cap:
         - Each monthly payout at the monthly limit
         - Total annual payouts at the annual aggregate limit
-        
-        This capping significantly reduces actual payouts compared to raw shortfalls shown here.
         """)
         
         # Compare with independent assumption
@@ -1313,10 +1311,10 @@ class SolarInsurancePricingApp:
             Final Annual Premium 💰
             ```
             
-            **Key Improvements:**
+            **Key Features:**
             1. We use actual annual losses (not sum of monthly) to account for correlation
-            2. Parametric structure with monthly + annual limits keeps coverage affordable
-            3. Expected losses shown are before applying caps - actual payouts would be lower
+            2. Parametric structure with monthly + annual limits
+            3. Expected losses shown are before applying caps
             """)
         
         # Use annual loss analysis if available
@@ -1413,7 +1411,7 @@ class SolarInsurancePricingApp:
             # Rate on line
             rate_on_line = (total_premium / st.session_state.coverage_limit) * 100
             st.metric("Rate on Line", f"{rate_on_line:.2f}%", 
-                     help="Premium as % of annual aggregate limit. Parametric standard: 15-30%")
+                     help="Premium as % of annual aggregate limit")
             
             # Loss ratio
             expected_loss_ratio = (pure_premium / total_premium) * 100
@@ -1423,29 +1421,24 @@ class SolarInsurancePricingApp:
             # Monthly premium
             st.metric("Monthly Premium", f"${total_premium/12:,.0f}")
             
-            # Parametric benchmark comparison
-            if rate_on_line < 15:
-                st.warning("⚠️ Rate on Line below 15% - may be underpriced for parametric")
-            elif rate_on_line > 40:
-                st.warning("⚠️ Rate on Line above 40% - may be uncompetitive")
-            else:
-                st.success("✅ Rate on Line within parametric insurance norms (15-30%)")
+            # Show ROL without judgment - let numbers speak for themselves
+            # Just display the metric without warnings about what's "good" or "bad"
                 
-            # Why parametric ROL is higher
-            with st.expander("Why is parametric ROL higher?"):
+            # Why parametric ROL differs from traditional
+            with st.expander("Understanding Rate on Line"):
                 st.markdown("""
-                **Traditional Insurance ROL: 2-10%**
+                **Traditional Insurance ROL: Often 2-10%**
                 - One potential claim per year
                 - High deductibles
                 - Coverage = 80-100% of revenue
                 
-                **Parametric Insurance ROL: 15-30%**
+                **Parametric Insurance ROL: Varies widely**
                 - Multiple monthly triggers possible
                 - No deductibles (typically)
-                - Lower limits (10-15% of revenue)
-                - Automatic payments = higher ops cost
+                - Lower limits relative to revenue
+                - Automatic payments = different cost structure
                 
-                Your effective exposure is similar, just structured differently!
+                ROL depends on your specific risk profile and coverage structure.
                 """)
                 
         # Additional pricing insights
@@ -1474,10 +1467,8 @@ class SolarInsurancePricingApp:
                 
                 coverage_adequacy = (st.session_state.coverage_limit / percentile_95_loss) * 100
                 
-                if coverage_adequacy < 100:
-                    st.warning(f"⚠️ Coverage below 95th percentile: {coverage_adequacy:.0f}%")
-                else:
-                    st.success(f"✅ Coverage adequate: {coverage_adequacy:.0f}% of P95 loss")
+                # Just show the coverage percentage without judgment
+                st.info(f"Coverage is {coverage_adequacy:.0f}% of P95 loss")
                     
                 st.info(f"""
                 **Annual Loss Analysis:**
@@ -1688,7 +1679,7 @@ MONTHLY BREAKDOWN
             - ⚡ **Instant payouts** - No claims process needed
             - 📊 **Objective triggers** - Based on actual generation data
             - 💰 **Revenue protection** - Covers lost income from low generation
-            - 📈 **Structured limits** - Monthly caps + annual aggregate = affordable coverage
+            - 📈 **Structured limits** - Monthly caps + annual aggregate
             
             **📈 How It Works:**
             1. Set a generation threshold (e.g., 10th percentile of historical data)
@@ -1696,10 +1687,10 @@ MONTHLY BREAKDOWN
             3. Payout = MIN[(Threshold - Actual) × Energy Price, Monthly Limit]
             4. Total annual payouts capped at Annual Aggregate Limit
             
-            **🎯 Key Innovation:**
+            **🎯 Key Features:**
             This tool uses **correlation-aware pricing** that analyzes actual annual losses rather than assuming 
-            monthly independence, resulting in more accurate premiums. Plus, it properly structures
-            limits for parametric insurance (monthly + annual aggregate) rather than traditional single limits.
+            monthly independence. Plus, it implements dual-limit structures
+            (monthly + annual aggregate) common in parametric insurance.
             
             **🏢 Perfect for:**
             - **Project Developers**: Secure financing with revenue guarantees
@@ -1737,9 +1728,9 @@ MONTHLY BREAKDOWN
                 5. **Review Results**: Check summary, details, and final pricing
                 
                 **Tips:**
-                - Lower percentiles (P1, P5) = more coverage but higher premiums
-                - Lower limits = more affordable premiums
-                - Conservative pricing = safer but more expensive
+                - Lower percentiles (P1, P5) = more coverage, higher premiums
+                - Different limit structures affect premium and coverage
+                - Pricing scenarios reflect different risk appetites
                 - More historical data = better estimates
                 """)
             
@@ -1766,22 +1757,22 @@ MONTHLY BREAKDOWN
                 
             with st.expander("Industry Standards"):
                 st.markdown("""
-                **Parametric Insurance Ranges:**
+                **Common Ranges (vary by market):**
                 - Risk Load: 1.2x - 2.0x
                 - Expenses: 15% - 25%
                 - Profit: 8% - 15%
-                - Rate on Line: 15% - 30%
+                - Rate on Line: Varies widely
                 
-                **Limit Structure:**
-                - Monthly: 30-50% of avg monthly revenue
-                - Annual: 8-15x monthly limit
+                **Typical Limit Structures:**
+                - Monthly: 20-50% of avg monthly revenue
+                - Annual: 6-20x monthly limit
                 
                 **Capacity Factors:**
                 - Solar: 20% - 30%
                 - Wind: 30% - 45%
                 
-                **Default Energy Price:**
-                - $30/MWh (market typical)
+                **Energy Prices:**
+                - Market dependent ($10-100/MWh)
                 """)
                     
         # Main content
