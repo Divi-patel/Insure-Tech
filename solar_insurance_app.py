@@ -46,6 +46,7 @@ class SolarInsurancePricingApp:
             st.session_state.distribution_results = {}
             st.session_state.selected_distributions = {}
             st.session_state.cvar_results = {}
+            st.session_state.annual_loss_analysis = {}
             st.session_state.generation_type = 'Renewable Energy'
             st.session_state.generation_col = 'Generation (MWh)'
             st.session_state.site_registry = None
@@ -103,6 +104,9 @@ class SolarInsurancePricingApp:
                     # Try to extract month from Date if Month column doesn't exist
                     data['Month'] = data['Date'].dt.month
                     st.info("Month column not found, extracted from Date column")
+                
+                # Add Year column for annual analysis
+                data['Year'] = data['Date'].dt.year
                 
                 # Store in session state
                 st.session_state.data = data
@@ -171,22 +175,22 @@ class SolarInsurancePricingApp:
                 if 'Plant Name' in st.session_state.data.columns:
                     facility_name = st.session_state.data['Plant Name'].iloc[0]
                     
-                    # Look for match in registry (assuming columns like 'Facility Name' and 'AC Capacity (MW)')
+                    # Look for match in registry
                     for col in ['Facility Name', 'Plant Name', 'Name']:
                         if col in site_registry.columns:
                             match = site_registry[site_registry[col].str.contains(facility_name.split()[0], case=False, na=False)]
                             if not match.empty:
-                                # Look for capacity column
-                                for cap_col in ['AC Capacity (MW)', 'Capacity (MW)', 'AC_Capacity_MW', 'Capacity']:
+                                # Look for AC capacity column (not DC)
+                                for cap_col in ['AC Capacity (MW)', 'AC_Capacity_MW', 'AC Capacity', 'Capacity_AC_MW']:
                                     if cap_col in match.columns:
                                         st.session_state.facility_capacity = match[cap_col].iloc[0]
-                                        st.info(f"✅ Found facility capacity: {st.session_state.facility_capacity:.1f} MW")
+                                        st.info(f"✅ Found facility AC capacity: {st.session_state.facility_capacity:.1f} MW")
                                         break
                                 break
         except Exception as e:
             # If registry not found or error, continue without it
             pass
-        
+            
     def analysis_parameters_section(self):
         """Handle analysis parameters selection"""
         st.header("⚙️ Analysis Parameters")
@@ -328,7 +332,7 @@ class SolarInsurancePricingApp:
                     risk_load = st.number_input(
                         "Risk Load Factor:",
                         min_value=1.0,
-                        max_value=2.5,  # Reduced from 5.0
+                        max_value=2.5,
                         value=1.5,
                         step=0.1,
                         help="Industry standard: 1.2x - 2.0x"
@@ -337,7 +341,7 @@ class SolarInsurancePricingApp:
                     expense_pct = st.number_input(
                         "Expense Ratio (%):",
                         min_value=10,
-                        max_value=30,  # Reduced from 50
+                        max_value=30,
                         value=20,
                         step=1,
                         help="Industry standard: 15-25%"
@@ -346,7 +350,7 @@ class SolarInsurancePricingApp:
                     profit_pct = st.number_input(
                         "Profit Margin (%):",
                         min_value=5,
-                        max_value=20,  # Reduced from 50
+                        max_value=20,
                         value=10,
                         step=1,
                         help="Industry standard: 8-15%"
@@ -375,9 +379,9 @@ class SolarInsurancePricingApp:
                     "Energy Price ($/MWh):",
                     min_value=10,
                     max_value=150,
-                    value=50,
+                    value=30,  # Changed default from 50 to 30
                     step=5,
-                    help="Market price per MWh"
+                    help="Market price per MWh (default: $30)"
                 )
                 
                 # Estimate capacity factor based on generation type
@@ -399,13 +403,14 @@ class SolarInsurancePricingApp:
                 st.metric("Annual Generation Potential", f"{annual_generation:,.0f} MWh")
                 st.metric("Annual Revenue Potential", f"${annual_revenue:,.0f}")
                 
-            # Coverage limit options
+            # Coverage limit options - make % of revenue the default
             st.subheader("Coverage Limit")
             
             coverage_option = st.radio(
                 "Coverage basis:",
                 options=["% of Annual Revenue", "Custom Amount"],
-                horizontal=True
+                horizontal=True,
+                index=0  # Default to % of Annual Revenue
             )
             
             if coverage_option == "% of Annual Revenue":
@@ -415,10 +420,10 @@ class SolarInsurancePricingApp:
                     max_value=100,
                     value=80,
                     step=5,
-                    help="Typically 80-100% of annual revenue"
+                    help="Typically 80-100% of annual revenue potential"
                 )
                 coverage_limit = annual_revenue * (coverage_pct / 100)
-                st.success(f"📊 Coverage Limit: ${coverage_limit:,.0f} ({coverage_pct}% of annual revenue)")
+                st.success(f"📊 Coverage Limit: ${coverage_limit:,.0f} ({coverage_pct}% of ${annual_revenue:,.0f} annual revenue)")
             else:
                 coverage_limit = st.number_input(
                     "Custom Coverage Limit ($):",
@@ -437,9 +442,9 @@ class SolarInsurancePricingApp:
                     "Energy Price ($/MWh):",
                     min_value=10,
                     max_value=150,
-                    value=50,
+                    value=30,  # Changed default from 50 to 30
                     step=5,
-                    help="Market price per MWh"
+                    help="Market price per MWh (default: $30)"
                 )
             
             with col4:
@@ -460,7 +465,7 @@ class SolarInsurancePricingApp:
             with col5:
                 confidence_adjustment = st.checkbox(
                     "Auto-adjust for data confidence",
-                    value=True,
+                    value=False,  # Changed default from True to False
                     help="Automatically increase risk load for months with limited historical data. Months with only 1 breach get higher risk loading due to uncertainty."
                 )
         
@@ -470,7 +475,7 @@ class SolarInsurancePricingApp:
         st.session_state.profit_margin = profit_pct / 100
         st.session_state.energy_price = energy_price
         st.session_state.coverage_limit = coverage_limit
-        st.session_state.confidence_adjustment = confidence_adjustment if 'confidence_adjustment' in locals() else True
+        st.session_state.confidence_adjustment = confidence_adjustment if 'confidence_adjustment' in locals() else False
         
     def run_analysis(self):
         """Run the complete analysis"""
@@ -479,24 +484,28 @@ class SolarInsurancePricingApp:
                 progress_bar = st.progress(0)
                 
                 # Step 1: Calculate monthly statistics
-                progress_bar.progress(20, "Calculating monthly statistics...")
+                progress_bar.progress(15, "Calculating monthly statistics...")
                 self.calculate_monthly_statistics()
                 
                 # Step 2: Fit distributions
-                progress_bar.progress(40, "Fitting distributions...")
+                progress_bar.progress(30, "Fitting distributions...")
                 self.fit_distributions()
                 
                 # Step 3: Auto-select best distributions
-                progress_bar.progress(60, "Selecting optimal distributions...")
+                progress_bar.progress(45, "Selecting optimal distributions...")
                 self.auto_select_distributions()
                 
                 # Step 4: Calculate VaR
-                progress_bar.progress(80, "Calculating VaR thresholds...")
+                progress_bar.progress(60, "Calculating VaR thresholds...")
                 self.calculate_var()
                 
                 # Step 5: Calculate CVaR
-                progress_bar.progress(90, "Calculating CVaR and expected losses...")
+                progress_bar.progress(75, "Calculating CVaR and expected losses...")
                 self.calculate_cvar()
+                
+                # Step 6: Calculate annual losses (NEW)
+                progress_bar.progress(90, "Analyzing annual loss patterns...")
+                self.calculate_annual_losses()
                 
                 progress_bar.progress(100, "Analysis complete!")
                 st.session_state.analysis_complete = True
@@ -676,6 +685,64 @@ class SolarInsurancePricingApp:
                 
         st.session_state.cvar_results = cvar_results
         
+    def calculate_annual_losses(self):
+        """Calculate annual losses accounting for correlation between months"""
+        # Get unique years in the analysis period
+        years = st.session_state.analysis_data['Year'].unique()
+        annual_losses = []
+        annual_details = {}
+        
+        for year in sorted(years):
+            year_data = st.session_state.analysis_data[st.session_state.analysis_data['Year'] == year]
+            
+            # Skip incomplete years (except the current year)
+            if len(year_data) < 12 and year != years.max():
+                continue
+                
+            year_loss = 0
+            breached_months = []
+            
+            # Check each month in this year
+            for _, row in year_data.iterrows():
+                month = row['Month']
+                generation = row['Generation (MWh)']
+                
+                if month in st.session_state.monthly_stats and 'var_fitted' in st.session_state.monthly_stats[month]:
+                    threshold = st.session_state.monthly_stats[month]['var_fitted']
+                    
+                    if generation < threshold:
+                        shortfall = threshold - generation
+                        year_loss += shortfall
+                        breached_months.append({
+                            'month': st.session_state.monthly_stats[month]['month_name'],
+                            'shortfall': shortfall,
+                            'generation': generation,
+                            'threshold': threshold
+                        })
+            
+            annual_losses.append(year_loss)
+            annual_details[year] = {
+                'total_loss': year_loss,
+                'breach_count': len(breached_months),
+                'breached_months': breached_months
+            }
+        
+        # Calculate statistics
+        if annual_losses:
+            st.session_state.annual_loss_analysis = {
+                'years': years,
+                'annual_losses': annual_losses,
+                'annual_details': annual_details,
+                'mean_annual_loss': np.mean(annual_losses),
+                'std_annual_loss': np.std(annual_losses),
+                'min_annual_loss': np.min(annual_losses),
+                'max_annual_loss': np.max(annual_losses),
+                'percentile_90': np.percentile(annual_losses, 90),
+                'percentile_95': np.percentile(annual_losses, 95)
+            }
+        else:
+            st.session_state.annual_loss_analysis = {}
+            
     def display_results(self):
         """Display analysis results"""
         if not st.session_state.get('analysis_complete', False):
@@ -695,7 +762,7 @@ class SolarInsurancePricingApp:
                 - **CVaR**: Conditional VaR - average generation when below threshold
                 - **Breach**: When generation falls below the VaR threshold
                 - **Shortfall**: The difference between threshold and actual generation
-                - **Expected Loss**: Probability × Average Shortfall
+                - **Expected Loss**: Annual average of historical losses
                 """)
                 
             with col2:
@@ -709,7 +776,7 @@ class SolarInsurancePricingApp:
                 """)
         
         # Create tabs for different views
-        tab1, tab2, tab3, tab4 = st.tabs(["📈 Summary", "📊 Monthly Details", "🎯 Pricing", "📉 Visualizations"])
+        tab1, tab2, tab3, tab4, tab5 = st.tabs(["📈 Summary", "📊 Monthly Details", "📅 Annual Analysis", "🎯 Pricing", "📉 Visualizations"])
         
         with tab1:
             self.display_summary()
@@ -718,9 +785,12 @@ class SolarInsurancePricingApp:
             self.display_monthly_details()
             
         with tab3:
-            self.display_pricing()
+            self.display_annual_analysis()
             
         with tab4:
+            self.display_pricing()
+            
+        with tab5:
             self.display_visualizations()
             
     def display_summary(self):
@@ -743,57 +813,40 @@ class SolarInsurancePricingApp:
             **Why it matters:**
             - VaR tells us WHEN to pay (the trigger)
             - CVaR tells us HOW MUCH to pay (average payout)
-            - Expected Loss = Breach Probability × Average Shortfall
-            """)
-            
-            # Visual representation
-            st.markdown("""
-            ```
-            Generation Distribution:
-                 |
-            3500 |    ████████
-            3000 |  ████████████
-            2500 |████████████████ ← CVaR (average of tail)
-            2000 |██████████████|← VaR (threshold)
-                 |______________|
-                       ↑
-                  Payouts occur here
-            ```
+            - Expected Loss = Historical average of annual losses (accounts for correlation)
             """)
         
-        # Calculate overall statistics
-        total_expected_loss = 0
-        high_confidence_months = 0
-        low_confidence_months = 0
+        # Get annual analysis results
+        if 'annual_loss_analysis' in st.session_state and st.session_state.annual_loss_analysis:
+            mean_annual_loss = st.session_state.annual_loss_analysis['mean_annual_loss']
+        else:
+            # Fallback to old method if annual analysis failed
+            mean_annual_loss = sum((r['breach_probability'] / 100) * r['average_shortfall'] 
+                                  for r in st.session_state.cvar_results.values() if r['breach_count'] > 0) * 12
         
-        for month, result in st.session_state.cvar_results.items():
-            if result['breach_count'] > 0:
-                expected_loss = (result['breach_probability'] / 100) * result['average_shortfall']
-                total_expected_loss += expected_loss
-                
-                if result['breach_count'] >= 3:
-                    high_confidence_months += 1
-                elif result['breach_count'] == 1:
-                    low_confidence_months += 1
-                    
+        # Calculate confidence metrics
+        high_confidence_months = sum(1 for r in st.session_state.cvar_results.values() if r['breach_count'] >= 3)
+        low_confidence_months = sum(1 for r in st.session_state.cvar_results.values() if r['breach_count'] == 1)
+        no_breach_months = sum(1 for r in st.session_state.cvar_results.values() if r['breach_count'] == 0)
+        
         # Display key metrics
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
             st.metric(
                 "Expected Annual Loss",
-                f"{total_expected_loss * 12:,.0f} MWh",
-                f"${total_expected_loss * 12 * st.session_state.energy_price:,.0f}",
-                help="Total expected shortfall across all months × 12. This is the average annual payout the insurer expects to make."
+                f"{mean_annual_loss:,.0f} MWh",
+                f"${mean_annual_loss * st.session_state.energy_price:,.0f}",
+                help="Average annual loss based on historical years, accounting for correlation between months."
             )
             
         with col2:
             avg_breach_prob = np.mean([r['breach_probability'] for r in st.session_state.cvar_results.values()])
             st.metric(
-                "Avg Breach Probability",
+                "Avg Monthly Breach Prob",
                 f"{avg_breach_prob:.1f}%",
-                "Across all months",
-                help="Average likelihood of generation falling below threshold. Higher % = more frequent payouts."
+                "Per month basis",
+                help="Average likelihood of any given month falling below threshold."
             )
             
         with col3:
@@ -801,7 +854,7 @@ class SolarInsurancePricingApp:
                 "High Confidence Months",
                 high_confidence_months,
                 "3+ historical breaches",
-                help="Months with 3+ historical breaches have reliable CVaR estimates. More is better for pricing accuracy."
+                help="Months with 3+ historical breaches have reliable CVaR estimates."
             )
             
         with col4:
@@ -809,10 +862,10 @@ class SolarInsurancePricingApp:
                 "Low Confidence Months",
                 low_confidence_months,
                 "Only 1 breach",
-                help="Months with only 1 breach have uncertain estimates. These require higher risk loads."
+                help="Months with only 1 breach have uncertain estimates."
             )
             
-        # Add capacity factor analysis if we have capacity data OR estimate it
+        # Add capacity factor analysis
         st.markdown("---")
         st.subheader("Facility Performance Analysis")
         
@@ -828,9 +881,9 @@ class SolarInsurancePricingApp:
             
             with col1:
                 st.metric(
-                    "Facility Capacity",
+                    "Facility AC Capacity",
                     f"{st.session_state.facility_capacity:.1f} MW",
-                    "AC Nameplate"
+                    "From site registry"
                 )
                 
             with col2:
@@ -882,7 +935,7 @@ class SolarInsurancePricingApp:
                     f"{annual_avg:,.0f} MWh/yr",
                     f"${annual_avg * st.session_state.energy_price:,.0f}/yr"
                 )
-            
+                    
     def display_monthly_details(self):
         """Display detailed monthly results"""
         st.subheader("Monthly VaR and CVaR Details")
@@ -931,6 +984,88 @@ class SolarInsurancePricingApp:
                     })
                     st.dataframe(breach_df, use_container_width=True, hide_index=True)
                     
+    def display_annual_analysis(self):
+        """Display annual loss analysis"""
+        st.subheader("📅 Annual Loss Analysis")
+        
+        if not st.session_state.annual_loss_analysis:
+            st.warning("No annual analysis available")
+            return
+            
+        annual_data = st.session_state.annual_loss_analysis
+        
+        # Key annual metrics
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric(
+                "Mean Annual Loss",
+                f"{annual_data['mean_annual_loss']:,.0f} MWh",
+                help="Average total loss per year"
+            )
+            
+        with col2:
+            st.metric(
+                "Std Dev",
+                f"{annual_data['std_annual_loss']:,.0f} MWh",
+                help="Volatility of annual losses"
+            )
+            
+        with col3:
+            st.metric(
+                "90th Percentile",
+                f"{annual_data['percentile_90']:,.0f} MWh",
+                help="90% of years have losses below this"
+            )
+            
+        with col4:
+            st.metric(
+                "Max Annual Loss",
+                f"{annual_data['max_annual_loss']:,.0f} MWh",
+                help="Worst year in history"
+            )
+            
+        # Annual loss table
+        st.markdown("### Historical Annual Losses")
+        
+        annual_table_data = []
+        for year, details in sorted(annual_data['annual_details'].items()):
+            annual_table_data.append({
+                'Year': year,
+                'Total Loss (MWh)': f"{details['total_loss']:,.0f}",
+                'Loss Value ($)': f"${details['total_loss'] * st.session_state.energy_price:,.0f}",
+                'Breached Months': details['breach_count'],
+                'Months': ', '.join([m['month'] for m in details['breached_months']])
+            })
+            
+        df_annual = pd.DataFrame(annual_table_data)
+        st.dataframe(df_annual, use_container_width=True, hide_index=True)
+        
+        # Show correlation insight
+        st.info("""
+        💡 **Why Annual Analysis Matters:**
+        
+        The annual analysis captures the natural correlation between months. Notice how breach events 
+        tend to cluster in certain years (e.g., drought years affecting multiple months). This gives 
+        a more realistic expected loss than assuming each month is independent.
+        """)
+        
+        # Compare with independent assumption
+        independent_loss = sum((r['breach_probability'] / 100) * r['average_shortfall'] 
+                             for r in st.session_state.cvar_results.values() if r['breach_count'] > 0) * 12
+        
+        correlation_impact = (independent_loss - annual_data['mean_annual_loss']) / independent_loss * 100
+        
+        if correlation_impact > 0:
+            st.success(f"""
+            ✅ **Correlation Benefit**: Using actual annual patterns reduces expected loss by {correlation_impact:.1f}% 
+            compared to assuming independent monthly events.
+            
+            - Independent assumption: {independent_loss:,.0f} MWh/year
+            - Actual correlated loss: {annual_data['mean_annual_loss']:,.0f} MWh/year
+            - Savings: {independent_loss - annual_data['mean_annual_loss']:,.0f} MWh/year
+            """)
+            
     def display_pricing(self):
         """Display insurance pricing calculations"""
         st.subheader("💰 Insurance Pricing Calculation")
@@ -955,35 +1090,29 @@ class SolarInsurancePricingApp:
                                 ↓
             Final Annual Premium 💰
             ```
+            
+            **Key Improvement**: We use actual annual losses (not sum of monthly) to account for correlation!
             """)
         
-        # Calculate total expected loss and confidence metrics
-        total_expected_loss = 0
-        high_confidence_months = 0
-        low_confidence_months = 0
-        no_breach_months = 0
+        # Use annual loss analysis if available
+        if 'annual_loss_analysis' in st.session_state and st.session_state.annual_loss_analysis:
+            annual_expected_loss = st.session_state.annual_loss_analysis['mean_annual_loss']
+            st.success(f"✅ Using correlation-adjusted annual loss: {annual_expected_loss:,.0f} MWh")
+        else:
+            # Fallback to old method
+            annual_expected_loss = sum((r['breach_probability'] / 100) * r['average_shortfall'] 
+                                     for r in st.session_state.cvar_results.values() if r['breach_count'] > 0) * 12
+            st.warning("⚠️ Using independent monthly assumption (may overestimate risk)")
         
-        for month, result in st.session_state.cvar_results.items():
-            if result['breach_count'] > 0:
-                expected_loss = (result['breach_probability'] / 100) * result['average_shortfall']
-                total_expected_loss += expected_loss
-                
-                if result['breach_count'] >= 3:
-                    high_confidence_months += 1
-                elif result['breach_count'] == 1:
-                    low_confidence_months += 1
-            else:
-                no_breach_months += 1
-                
-        annual_expected_loss = total_expected_loss * 12
         energy_price = st.session_state.energy_price
+        
+        # Calculate confidence metrics
+        high_confidence_months = sum(1 for r in st.session_state.cvar_results.values() if r['breach_count'] >= 3)
+        low_confidence_months = sum(1 for r in st.session_state.cvar_results.values() if r['breach_count'] == 1)
+        no_breach_months = sum(1 for r in st.session_state.cvar_results.values() if r['breach_count'] == 0)
         
         # Determine risk load based on confidence
         if st.session_state.confidence_adjustment:
-            low_confidence_months = sum(1 for r in st.session_state.cvar_results.values() if r['breach_count'] == 1)
-            no_breach_months = sum(1 for r in st.session_state.cvar_results.values() if r['breach_count'] == 0)
-            
-            # More nuanced risk adjustment
             if no_breach_months >= 6:
                 actual_risk_load = st.session_state.risk_load_factor * 1.3
                 st.warning(f"""
@@ -997,8 +1126,7 @@ class SolarInsurancePricingApp:
                 st.warning(f"""
                 ⚠️ **Risk load increased to {actual_risk_load:.2f}x due to low data confidence**
                 
-                {low_confidence_months} months have only 1 historical breach, making estimates uncertain. 
-                The additional risk load protects against underpricing due to limited data.
+                {low_confidence_months} months have only 1 historical breach, making estimates uncertain.
                 """)
             elif low_confidence_months > 3:
                 actual_risk_load = st.session_state.risk_load_factor * 1.1
@@ -1006,7 +1134,6 @@ class SolarInsurancePricingApp:
                 ℹ️ **Risk load adjusted to {actual_risk_load:.2f}x for moderate confidence**
                 
                 {low_confidence_months} months have limited breach data.
-                Small risk adjustment applied for prudent pricing.
                 """)
             else:
                 actual_risk_load = st.session_state.risk_load_factor
@@ -1014,7 +1141,7 @@ class SolarInsurancePricingApp:
                     st.success(f"""
                     ✅ **High confidence pricing**: Risk load {actual_risk_load:.1f}x
                     
-                    {high_confidence_months} months have 3+ breaches, providing reliable CVaR estimates.
+                    {high_confidence_months} months have 3+ breaches, providing reliable estimates.
                     """)
         else:
             actual_risk_load = st.session_state.risk_load_factor
@@ -1095,23 +1222,25 @@ class SolarInsurancePricingApp:
             # Coverage adequacy check
             st.markdown("**Coverage Adequacy Analysis:**")
             
-            max_monthly_loss = max(r['average_shortfall'] for r in st.session_state.cvar_results.values() if r['breach_count'] > 0)
-            max_annual_exposure = max_monthly_loss * 12 * energy_price
-            coverage_adequacy = (st.session_state.coverage_limit / max_annual_exposure) * 100
-            
-            if coverage_adequacy < 100:
-                st.error(f"⚠️ Coverage may be insufficient: {coverage_adequacy:.0f}% of max exposure")
-            else:
-                st.success(f"✅ Coverage adequate: {coverage_adequacy:.0f}% of max exposure")
+            if st.session_state.annual_loss_analysis:
+                max_annual_loss = st.session_state.annual_loss_analysis['max_annual_loss'] * energy_price
+                percentile_95_loss = st.session_state.annual_loss_analysis['percentile_95'] * energy_price
                 
-            st.info(f"""
-            **Coverage Analysis:**
-            - Max monthly shortfall: {max_monthly_loss:,.0f} MWh
-            - Max annual exposure: ${max_annual_exposure:,.0f}
-            - Current limit: ${st.session_state.coverage_limit:,.0f}
-            - Coverage ratio: {coverage_adequacy:.0f}%
-            """)
-            
+                coverage_adequacy = (st.session_state.coverage_limit / max_annual_loss) * 100
+                
+                if coverage_adequacy < 100:
+                    st.error(f"⚠️ Coverage may be insufficient: {coverage_adequacy:.0f}% of historical max")
+                else:
+                    st.success(f"✅ Coverage adequate: {coverage_adequacy:.0f}% of historical max")
+                    
+                st.info(f"""
+                **Coverage Analysis:**
+                - Historical max annual loss: ${max_annual_loss:,.0f}
+                - 95th percentile loss: ${percentile_95_loss:,.0f}
+                - Current limit: ${st.session_state.coverage_limit:,.0f}
+                - Coverage ratio: {coverage_adequacy:.0f}%
+                """)
+                
         # Download pricing report
         if st.button("📥 Download Pricing Report"):
             self.generate_pricing_report(total_premium, rate_on_line, actual_risk_load)
@@ -1148,19 +1277,22 @@ class SolarInsurancePricingApp:
         ax1.legend()
         ax1.grid(axis='y', alpha=0.3)
         
-        # 2. Breach Probability by Month
+        # 2. Annual Loss Distribution
         ax2 = axes[0, 1]
-        breach_probs = []
-        for month in range(1, 13):
-            if month in st.session_state.cvar_results:
-                breach_probs.append(st.session_state.cvar_results[month]['breach_probability'])
-        
-        ax2.plot(months, breach_probs, 'o-', linewidth=2, markersize=8, color='darkgreen')
-        ax2.set_xlabel('Month')
-        ax2.set_ylabel('Breach Probability (%)')
-        ax2.set_title('Historical Breach Probability by Month')
-        ax2.grid(True, alpha=0.3)
-        ax2.set_ylim(bottom=0)
+        if st.session_state.annual_loss_analysis:
+            annual_losses = st.session_state.annual_loss_analysis['annual_losses']
+            ax2.hist(annual_losses, bins=min(10, len(annual_losses)), alpha=0.7, 
+                    edgecolor='black', color='lightgreen')
+            ax2.axvline(np.mean(annual_losses), color='red', linestyle='--', 
+                       label=f'Mean: {np.mean(annual_losses):,.0f}')
+            ax2.set_xlabel('Annual Loss (MWh)')
+            ax2.set_ylabel('Frequency')
+            ax2.set_title('Historical Annual Loss Distribution')
+            ax2.legend()
+            ax2.grid(axis='y', alpha=0.3)
+        else:
+            ax2.text(0.5, 0.5, 'No annual data', ha='center', va='center')
+            ax2.set_title('Annual Loss Distribution')
         
         # 3. Expected Loss by Month
         ax3 = axes[1, 0]
@@ -1177,7 +1309,7 @@ class SolarInsurancePricingApp:
         ax3.bar(months, expected_losses, alpha=0.7, color='orange')
         ax3.set_xlabel('Month')
         ax3.set_ylabel('Expected Loss (MWh)')
-        ax3.set_title('Expected Monthly Loss')
+        ax3.set_title('Expected Monthly Loss (Independent)')
         ax3.grid(axis='y', alpha=0.3)
         
         # 4. Distribution Example (December)
@@ -1204,6 +1336,16 @@ class SolarInsurancePricingApp:
     def generate_pricing_report(self, total_premium, rate_on_line, actual_risk_load):
         """Generate downloadable pricing report"""
         gen_type = st.session_state.get('generation_type', 'Renewable Energy')
+        
+        # Get annual loss details
+        if st.session_state.annual_loss_analysis:
+            annual_method = "Correlation-Adjusted (Historical Annual)"
+            expected_annual_loss = st.session_state.annual_loss_analysis['mean_annual_loss']
+        else:
+            annual_method = "Independent Monthly Assumption"
+            expected_annual_loss = sum((r['breach_probability'] / 100) * r['average_shortfall'] 
+                                     for r in st.session_state.cvar_results.values() if r['breach_count'] > 0) * 12
+        
         report = f"""
 {gen_type.upper()} GENERATION PARAMETRIC INSURANCE PRICING REPORT
 Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}
@@ -1213,7 +1355,12 @@ File: {st.session_state.selected_file}
 Generation Type: {gen_type}
 Analysis Period: {st.session_state.analysis_start_date.strftime('%Y-%m')} to {st.session_state.data['Date'].max().strftime('%Y-%m')}
 Total Months Analyzed: {len(st.session_state.analysis_data)}
+"""
 
+        if st.session_state.facility_capacity:
+            report += f"AC Capacity: {st.session_state.facility_capacity:.1f} MW\n"
+
+        report += f"""
 COVERAGE PARAMETERS
 Threshold: P{st.session_state.threshold_percentile} ({st.session_state.threshold_percentile}th percentile)
 Coverage Limit: ${st.session_state.coverage_limit:,.0f}
@@ -1223,11 +1370,17 @@ PRICING PARAMETERS
 Risk Load Factor: {actual_risk_load:.2f}x
 Expense Ratio: {st.session_state.expense_ratio:.0%}
 Profit Margin: {st.session_state.profit_margin:.0%}
+Loss Calculation Method: {annual_method}
+
+EXPECTED LOSSES
+Annual Expected Loss: {expected_annual_loss:,.0f} MWh
+Annual Expected Loss Value: ${expected_annual_loss * st.session_state.energy_price:,.0f}
 
 FINAL PRICING
 Annual Premium: ${total_premium:,.0f}
 Monthly Premium: ${total_premium/12:,.0f}
 Rate on Line: {rate_on_line:.2f}%
+Expected Loss Ratio: {(expected_annual_loss * st.session_state.energy_price / total_premium) * 100:.1f}%
 
 MONTHLY BREAKDOWN
 """
@@ -1239,6 +1392,15 @@ MONTHLY BREAKDOWN
                 report += f"\n  VaR Threshold: {result['threshold']:,.0f} MWh"
                 report += f"\n  Breach Probability: {result['breach_probability']:.1f}%"
                 report += f"\n  Average Shortfall: {result['average_shortfall']:,.0f} MWh"
+                report += f"\n  Historical Breaches: {result['breach_count']}"
+                
+        # Add annual analysis if available
+        if st.session_state.annual_loss_analysis:
+            report += "\n\nANNUAL LOSS ANALYSIS\n"
+            report += f"Mean Annual Loss: {st.session_state.annual_loss_analysis['mean_annual_loss']:,.0f} MWh\n"
+            report += f"Std Dev Annual Loss: {st.session_state.annual_loss_analysis['std_annual_loss']:,.0f} MWh\n"
+            report += f"90th Percentile Loss: {st.session_state.annual_loss_analysis['percentile_90']:,.0f} MWh\n"
+            report += f"Max Historical Loss: {st.session_state.annual_loss_analysis['max_annual_loss']:,.0f} MWh\n"
         
         st.download_button(
             label="📥 Download Report",
@@ -1256,7 +1418,7 @@ MONTHLY BREAKDOWN
             st.title(f"{icon} {gen_type} Generation Parametric Insurance Pricing Tool")
         else:
             st.title("⚡ Renewable Energy Parametric Insurance Pricing Tool")
-        
+            
         # Welcome message for first-time users
         if not st.session_state.data_loaded:
             st.markdown("""
@@ -1275,17 +1437,15 @@ MONTHLY BREAKDOWN
             2. If monthly generation < threshold → Automatic payout
             3. Payout = (Threshold - Actual) × Energy Price
             
+            **🎯 Key Innovation:**
+            This tool uses **correlation-aware pricing** that analyzes actual annual losses rather than assuming 
+            monthly independence, resulting in more accurate (and often lower) premiums.
+            
             **🏢 Perfect for:**
             - **Project Developers**: Secure financing with revenue guarantees
             - **Asset Owners**: Protect against weather-related generation losses  
             - **Lenders**: Reduce project risk with coverage for debt service
             - **Insurers**: Price products using advanced statistical methods
-            
-            **🚀 This Tool Provides:**
-            - Industry-standard VaR/CVaR analysis
-            - Automatic capacity-based coverage limits
-            - Confidence-adjusted risk pricing
-            - Professional reports for underwriting
             
             👉 **Get started by loading your generation data below!**
             """)
@@ -1332,9 +1492,10 @@ MONTHLY BREAKDOWN
                 - Average of all values below VaR
                 - Tells us the typical payout amount
                 
-                **Expected Loss**
-                - Breach Probability × Average Shortfall
-                - Forms the base of your premium
+                **Annual Loss Method**
+                - Calculates actual losses for each year
+                - Captures correlation between months
+                - More accurate than summing monthly losses
                 """)
                 
             with st.expander("Industry Standards"):
@@ -1348,6 +1509,9 @@ MONTHLY BREAKDOWN
                 **Capacity Factors:**
                 - Solar: 20% - 30%
                 - Wind: 30% - 45%
+                
+                **Default Energy Price:**
+                - $30/MWh (market typical)
                 """)
                     
         # Main content
