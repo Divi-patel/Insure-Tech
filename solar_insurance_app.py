@@ -144,6 +144,24 @@ class SolarInsurancePricingApp:
         """Handle analysis parameters selection"""
         st.header("⚙️ Analysis Parameters")
         
+        # Add educational content
+        with st.expander("📚 Understanding Parametric Insurance", expanded=False):
+            st.markdown("""
+            **What is Parametric Insurance?**
+            
+            Unlike traditional insurance that pays for actual damages, parametric insurance pays automatically when a measurable parameter (like energy generation) falls below a pre-agreed threshold.
+            
+            **Example:**
+            - Threshold (VaR): 2,850 MWh
+            - Actual generation: 2,700 MWh  
+            - Automatic payout: (2,850 - 2,700) × Energy Price
+            
+            **Benefits:**
+            - ✅ Instant payouts (no claims process)
+            - ✅ Transparent triggers
+            - ✅ No need to prove losses
+            """)
+        
         data = st.session_state.data
         
         col1, col2 = st.columns(2)
@@ -157,12 +175,24 @@ class SolarInsurancePricingApp:
                 "Analysis start date:",
                 value=pd.to_datetime('2012-01-01').date() if pd.to_datetime('2012-01-01') >= data['Date'].min() else min_date,
                 min_value=min_date,
-                max_value=max_date
+                max_value=max_date,
+                help="Choose how far back to analyze. More historical data = better estimates"
             )
             
         with col2:
             # VaR threshold selection
             st.subheader("VaR Threshold")
+            
+            # Educational info about VaR
+            st.info("""
+            **VaR (Value at Risk)** = The threshold that triggers insurance payouts
+            
+            • **P10**: 10% chance of falling below (standard coverage)
+            • **P5**: 5% chance of falling below (enhanced coverage)  
+            • **P1**: 1% chance of falling below (catastrophic coverage)
+            
+            Lower percentile = Lower threshold = More frequent payouts = Higher premium
+            """)
             
             threshold_option = st.radio(
                 "Select threshold type:",
