@@ -1,0 +1,6 @@
+plant_code,site_name,state,county,site_type,start_month,start_year,dc_capacity_mw,ac_capacity_mw,azimuth_angle,tilt_angle,system_type,latitude,longitude,altitude,albedo,linke_turbidity,temp_coefficient_power,ref_temp,soiling_daily_rate,rain_clean_threshold,soiling_max_loss,soiling_seasonal_adjust,loss_dc_wiring,loss_ac_wiring,loss_mismatch,loss_nameplate,loss_transformer,degradation_rate
+57197,Blue_Wing_Solar_Energy_Generator,TX,Bexar,solar,Nov,2010,16.7,13.9,205,20,fixed,29.30418,-98.40034,,0.2,2.5,-0.0045,25,0.0002,1,0.15,TRUE,0.98,0.99,0.98,0.99,0.985,0.002
+60315,Midway_Solar_Farm_III,CA,Imperial,solar,Sep,2018,26,20,0,0,single_axis_tracking,33.15476,-115.54492,,0.2,2.5,-0.0045,25,0.0002,1,0.15,TRUE,0.98,0.99,0.98,0.99,0.985,0.002
+62249,Misae_Solar,TX,Childress,solar,jan ,2020,326.8,240,0,0,single_axis_tracking,34.38053,-100.09963,,0.2,2.5,-0.0045,25,0.0002,1,0.15,TRUE,0.98,0.99,0.98,0.99,0.985,0.002
+61353,Mount_Signal_Solar_Farm_II,CA,Imperial,solar,oct ,2019,199.6,153.5,0,0,single_axis_tracking,32.6685,-115.6292,,0.2,2.5,-0.0045,25,0.0002,1,0.15,TRUE,0.98,0.99,0.98,0.99,0.985,0.002
+59150,RE_Mustang_LLC,CA,Kings,Solar,Mar,2016,134.4,100,0,0,single_axis_tracking,36.22167,-119.90306,,0.2,2.5,-0.0045,25,0.0002,1,0.15,TRUE,0.98,0.99,0.98,0.99,0.985,0.002
