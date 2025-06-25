@@ -155,7 +155,7 @@ class SolarInsurancePricingApp:
     def load_site_capacity(self):
         """Load site registry to get facility capacity"""
         try:
-            # Try to load site registry from parent directory first
+            # Try to load site registry from multiple locations
             registry_paths = [
                 Path("site_registry.csv"),
                 Path("actual_generation/site_registry.csv"),
@@ -166,29 +166,53 @@ class SolarInsurancePricingApp:
             for path in registry_paths:
                 if path.exists():
                     site_registry = pd.read_csv(path)
+                    st.info(f"Found site registry at: {path}")
                     break
                     
             if site_registry is not None:
                 st.session_state.site_registry = site_registry
                 
-                # Try to match facility name
-                if 'Plant Name' in st.session_state.data.columns:
+                # First try to match by plant code if available
+                if 'Plant Code' in st.session_state.data.columns and 'plant_code' in site_registry.columns:
+                    plant_code = st.session_state.data['Plant Code'].iloc[0]
+                    match = site_registry[site_registry['plant_code'] == plant_code]
+                    
+                    if not match.empty:
+                        # Use AC capacity (not DC) for insurance purposes
+                        if 'ac_capacity_mw' in match.columns:
+                            st.session_state.facility_capacity = match['ac_capacity_mw'].iloc[0]
+                            site_name = match['site_name'].iloc[0] if 'site_name' in match.columns else "Unknown"
+                            st.success(f"✅ Matched by Plant Code {plant_code}: {site_name} - AC Capacity: {st.session_state.facility_capacity:.1f} MW")
+                            return
+                
+                # If no plant code match, try to match by facility name
+                if 'Plant Name' in st.session_state.data.columns and 'site_name' in site_registry.columns:
                     facility_name = st.session_state.data['Plant Name'].iloc[0]
                     
-                    # Look for match in registry
-                    for col in ['Facility Name', 'Plant Name', 'Name']:
-                        if col in site_registry.columns:
-                            match = site_registry[site_registry[col].str.contains(facility_name.split()[0], case=False, na=False)]
-                            if not match.empty:
-                                # Look for AC capacity column (not DC)
-                                for cap_col in ['AC Capacity (MW)', 'AC_Capacity_MW', 'AC Capacity', 'Capacity_AC_MW']:
-                                    if cap_col in match.columns:
-                                        st.session_state.facility_capacity = match[cap_col].iloc[0]
-                                        st.info(f"✅ Found facility AC capacity: {st.session_state.facility_capacity:.1f} MW")
-                                        break
-                                break
+                    # Try exact match first (case insensitive)
+                    match = site_registry[site_registry['site_name'].str.lower() == facility_name.lower()]
+                    
+                    # If no exact match, try partial match
+                    if match.empty:
+                        # Remove common suffixes for better matching
+                        clean_name = facility_name.replace("_actual_generation", "").replace(" LLC", "").replace(" Hybrid", "")
+                        first_part = clean_name.split()[0] if ' ' in clean_name else clean_name.split('_')[0]
+                        
+                        match = site_registry[site_registry['site_name'].str.contains(first_part, case=False, na=False)]
+                    
+                    if not match.empty:
+                        # Use AC capacity (not DC) for insurance purposes
+                        if 'ac_capacity_mw' in match.columns:
+                            st.session_state.facility_capacity = match['ac_capacity_mw'].iloc[0]
+                            st.success(f"✅ Matched facility: {match['site_name'].iloc[0]} - AC Capacity: {st.session_state.facility_capacity:.1f} MW")
+                        else:
+                            st.warning("AC capacity column not found in site registry")
+                    else:
+                        st.warning(f"Could not find '{facility_name}' in site registry")
+                        
         except Exception as e:
-            # If registry not found or error, continue without it
+            st.error(f"Error loading site registry: {str(e)}")
+            # Continue without capacity data
             pass
             
     def analysis_parameters_section(self):
@@ -379,20 +403,26 @@ class SolarInsurancePricingApp:
                     "Energy Price ($/MWh):",
                     min_value=10,
                     max_value=150,
-                    value=30,  # Changed default from 50 to 30
+                    value=30,
                     step=5,
                     help="Market price per MWh (default: $30)"
                 )
                 
-                # Estimate capacity factor based on generation type
-                default_cf = 0.25 if st.session_state.generation_type == 'Solar' else 0.35
+                # Calculate actual capacity factor from historical data
+                total_generation = st.session_state.analysis_data['Generation (MWh)'].sum()
+                total_months = len(st.session_state.analysis_data)
+                total_hours = total_months * 730  # Average hours per month
+                
+                actual_capacity_factor = total_generation / (st.session_state.facility_capacity * total_hours)
+                
+                # Use actual CF as default, with option to adjust
                 capacity_factor = st.slider(
                     "Capacity Factor:",
                     min_value=0.10,
                     max_value=0.50,
-                    value=default_cf,
+                    value=float(np.clip(actual_capacity_factor, 0.10, 0.50)),
                     step=0.01,
-                    help=f"Typical {st.session_state.generation_type}: {'20-30%' if st.session_state.generation_type == 'Solar' else '30-45%'}"
+                    help=f"Historical CF: {actual_capacity_factor:.1%} | Typical {st.session_state.generation_type}: {'20-30%' if st.session_state.generation_type == 'Solar' else '30-45%'}"
                 )
             
             with col4:
@@ -434,7 +464,9 @@ class SolarInsurancePricingApp:
                     help=f"Suggested range: ${annual_revenue*0.5:,.0f} - ${annual_revenue*1.2:,.0f}"
                 )
         else:
-            # No capacity data - use traditional inputs
+            # No capacity data - use generation-based inputs
+            st.warning("⚠️ Facility capacity not found in site registry. Using generation-based coverage calculation.")
+            
             col3, col4, col5 = st.columns(3)
             
             with col3:
@@ -442,32 +474,42 @@ class SolarInsurancePricingApp:
                     "Energy Price ($/MWh):",
                     min_value=10,
                     max_value=150,
-                    value=30,  # Changed default from 50 to 30
+                    value=30,
                     step=5,
                     help="Market price per MWh (default: $30)"
                 )
             
             with col4:
-                # If no capacity, estimate from historical generation
+                # Calculate from historical generation
                 avg_monthly_gen = st.session_state.data['Generation (MWh)'].mean() if st.session_state.data_loaded else 2000
-                estimated_annual = avg_monthly_gen * 12
-                default_limit = estimated_annual * energy_price * 0.8
+                estimated_annual_gen = avg_monthly_gen * 12
+                estimated_annual_revenue = estimated_annual_gen * energy_price
                 
+                st.metric("Est. Annual Generation", f"{estimated_annual_gen:,.0f} MWh")
+                st.metric("Est. Annual Revenue", f"${estimated_annual_revenue:,.0f}")
+                
+            with col5:
                 coverage_limit = st.number_input(
                     "Coverage Limit ($):",
                     min_value=100_000,
                     max_value=50_000_000,
-                    value=min(int(default_limit), 10_000_000),
+                    value=min(int(estimated_annual_revenue * 0.8), 10_000_000),
                     step=100_000,
-                    help=f"Based on avg generation: ${default_limit:,.0f} suggested"
+                    help=f"Suggested: 80% of annual revenue = ${estimated_annual_revenue * 0.8:,.0f}"
                 )
                 
-            with col5:
-                confidence_adjustment = st.checkbox(
-                    "Auto-adjust for data confidence",
-                    value=False,  # Changed default from True to False
-                    help="Automatically increase risk load for months with limited historical data. Months with only 1 breach get higher risk loading due to uncertainty."
-                )
+            st.info("""
+            💡 **Tip**: Add your facility to site_registry.csv with the following columns:
+            - plant_code: Your facility's plant code
+            - site_name: Facility name (should match Plant Name in generation data)
+            - ac_capacity_mw: AC capacity in MW (use this, not DC)
+            """)
+            
+            confidence_adjustment = st.checkbox(
+                "Auto-adjust for data confidence",
+                value=False,
+                help="Automatically increase risk load for months with limited historical data."
+            )
         
         # Store parameters
         st.session_state.risk_load_factor = risk_load
@@ -902,23 +944,19 @@ class SolarInsurancePricingApp:
                     f"{(monthly_avg/theoretical_monthly - 1)*100:+.1f}% vs expected"
                 )
         else:
-            # Estimate capacity from generation data
+            # If capacity not found in registry, show generation stats only
             total_generation = st.session_state.analysis_data['Generation (MWh)'].sum()
             total_months = len(st.session_state.analysis_data)
             monthly_avg = total_generation / total_months
-            
-            # Estimate capacity assuming typical capacity factors
-            assumed_cf = 0.25 if st.session_state.generation_type == 'Solar' else 0.35
-            estimated_capacity = monthly_avg / (730 * assumed_cf)
             
             col1, col2, col3 = st.columns(3)
             
             with col1:
                 st.metric(
-                    "Estimated Capacity",
-                    f"~{estimated_capacity:.0f} MW",
-                    f"Assuming {assumed_cf:.0%} CF",
-                    help="Estimated from generation data"
+                    "AC Capacity",
+                    "Not Found",
+                    "Check site registry",
+                    help="Could not match facility in site registry"
                 )
                 
             with col2:
@@ -935,6 +973,8 @@ class SolarInsurancePricingApp:
                     f"{annual_avg:,.0f} MWh/yr",
                     f"${annual_avg * st.session_state.energy_price:,.0f}/yr"
                 )
+                
+            st.warning("⚠️ Facility capacity not found in site registry. Coverage limit calculations will use generation-based estimates.")
                     
     def display_monthly_details(self):
         """Display detailed monthly results"""
